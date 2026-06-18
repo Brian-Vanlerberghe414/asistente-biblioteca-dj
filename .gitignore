@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Base de datos y config locales (de cada máquina, no versionar)
+*.db
+*.db.bak*
+*.db.backup*
+asistente_dj/asistente_config.json
+
+# Logs locales y settings de Claude Code específicos de esta máquina
+*.log
+.claude/settings.local.json
+
+# Material de referencia / no parte del código (wallpapers sueltos, zips)
+/Wallpaper/
+/files.zip
+
+# Binario de Chromaprint (cada SO baja el suyo)
+fpcalc
+fpcalc.exe
+
+# Exports/temporales
+*.xml
+!*/ejemplos/*.xml
+test_audio/
+audio_test/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini

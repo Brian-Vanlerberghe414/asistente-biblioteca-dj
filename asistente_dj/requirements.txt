@@ -1,0 +1,33 @@
+# Dependencias del Asistente DJ — Módulo 1 (prototipo)
+# Instalá con:  pip install -r requirements.txt
+#
+# Mutagen: lectura robusta de tags en todos los formatos (MP3, FLAC, M4A, AIFF, WAV).
+# Si no está instalado, el motor usa un lector ID3 interno (solo MP3) como respaldo.
+mutagen>=1.47
+
+# numpy: análisis de audio (BPM, key, energía) en el comando `analyze`.
+numpy>=1.24
+
+# PySide6: interfaz gráfica (GUI). Instalá con: pip install PySide6
+PySide6>=6.6
+
+# requests + beautifulsoup4: lookup online de artistas (Last.fm, Beatport)
+requests>=2.28
+beautifulsoup4>=4.12
+
+# supabase: Biblioteca Confiable — fuente prioritaria de género
+# Instalá con: pip install supabase
+supabase>=2.3
+
+# playwright: Módulo 2 — scraper de los charts de Beatport (SPA, sin API oficial).
+# Instalá con: pip install playwright   y luego:   playwright install chromium
+playwright>=1.44
+
+# yt-dlp: Módulo 2 — buscar previews en YouTube para los tracks de los charts
+# (sin API key, vía búsqueda ytsearch). El reproductor embebido en la GUI usa
+# PySide6-WebEngine (incluido en el paquete PySide6).
+yt-dlp>=2024.1
+
+# NOTA: el comando `analyze` también requiere FFMPEG instalado en el sistema
+# (no es un paquete pip). Descargá de https://ffmpeg.org/download.html y
+# asegurate de que `ffmpeg` esté en el PATH.
