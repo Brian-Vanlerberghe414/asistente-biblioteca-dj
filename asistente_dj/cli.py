@@ -727,10 +727,15 @@ def cmd_charts_scrape(args):
     _print_header()
     import charts_beatport
     import biblioteca_confiable
+    import charts_confiable
     import json as _json
 
-    generos_filtro = [args.genero] if args.genero else None
-    incluir_global = (not args.genero or args.global_tambien) and not args.sin_global
+    if args.solo_global:
+        generos_filtro = []
+        incluir_global = True
+    else:
+        generos_filtro = [args.genero] if args.genero else None
+        incluir_global = (not args.genero or args.global_tambien) and not args.sin_global
     subir_biblioteca = biblioteca_confiable.esta_configurado()
     if not subir_biblioteca:
         print("(Biblioteca Confiable no configurada — los charts se guardan local "
@@ -738,7 +743,7 @@ def cmd_charts_scrape(args):
               "--supabase-url URL --supabase-key KEY`.)")
     print("Scrapeando Beatport (esto puede tardar varios minutos)...")
     try:
-        resultado = charts_beatport.ejecutar(generos_filtro, incluir_global)
+        resultado = charts_beatport.ejecutar(generos_filtro, incluir_global, args.delay_seg)
     except ImportError:
         print("Falta Playwright. Instalá con:")
         print("  pip install playwright")
@@ -769,6 +774,8 @@ def cmd_charts_scrape(args):
         )
         return ok
 
+    subir_charts_cloud = charts_confiable.esta_configurado()
+
     def _guardar(slug, nombre_genero, tracks, es_global):
         nuevos = subidos = 0
         for t in tracks:
@@ -793,6 +800,8 @@ def cmd_charts_scrape(args):
                 if _subir_a_biblioteca(t, genero, subgenero):
                     subidos += 1
         conn.commit()
+        if subir_charts_cloud:
+            charts_confiable.upsert_tracks(tracks, slug, nombre_genero, fecha)
         extra = f", {subidos} subidos a Biblioteca Confiable" if subir_biblioteca else ""
         print(f"  [{nombre_genero}] {len(tracks)} tracks ({nuevos} nuevos{extra})")
         return nuevos, subidos
@@ -815,22 +824,41 @@ def cmd_charts_scrape(args):
     return 0
 
 
+def _filas_chart_dict(rows) -> list[dict]:
+    """Normaliza filas de SQLite (Row) o de Supabase (dict, artistas ya como
+    lista) a una forma común: dict con 'artistas' siempre como lista."""
+    out = []
+    for r in rows:
+        d = dict(r)
+        if isinstance(d.get("artistas"), str):
+            d["artistas"] = json.loads(d["artistas"] or "[]")
+        out.append(d)
+    return out
+
+
 def cmd_charts_show(args):
-    """Muestra el Top N guardado de un chart (global o de un género)."""
+    """Muestra el Top N guardado de un chart (global o de un género).
+    Lee de Supabase si está configurado (ahí escribe también el agente en la
+    nube); si no, cae al SQLite local."""
     _print_header()
-    conn = db.connect(args.db)
+    import charts_confiable
     slug = args.genero or "global"
-    rows = conn.execute(
-        "SELECT * FROM charts_tracks WHERE genero_slug=? ORDER BY posicion LIMIT ?",
-        (slug, args.top),
-    ).fetchall()
+    rows = []
+    if charts_confiable.esta_configurado():
+        rows = _filas_chart_dict(charts_confiable.obtener_chart(slug, args.top))
+    if not rows:
+        conn = db.connect(args.db)
+        rows = _filas_chart_dict(conn.execute(
+            "SELECT * FROM charts_tracks WHERE genero_slug=? ORDER BY posicion LIMIT ?",
+            (slug, args.top),
+        ).fetchall())
     if not rows:
         print(f"Sin datos para '{slug}'. Corré primero:  python cli.py charts-scrape"
               + (f" --genero {slug}" if slug != "global" else ""))
         return 1
     print(f"Top {len(rows)} — {rows[0]['genero_nombre'] or slug}  (scrape: {rows[0]['fecha_scrape']})\n")
     for r in rows:
-        artistas = ", ".join(json.loads(r["artistas"] or "[]"))
+        artistas = ", ".join(r["artistas"])
         bpm = f"{r['bpm']:.0f}" if r["bpm"] else "—"
         print(f"  {r['posicion']:>3}) {artistas:<30.30} {r['nombre']:<35.35} "
               f"[{bpm} BPM, {r['key'] or '—'}]  {r['sello'] or ''}")
@@ -838,27 +866,37 @@ def cmd_charts_show(args):
 
 
 def cmd_charts_novedades(args):
-    """Tracks que aparecieron por primera vez en el scrape más reciente."""
+    """Tracks que aparecieron por primera vez en el scrape más reciente.
+    Lee de Supabase si está configurado; si no, cae al SQLite local."""
     _print_header()
-    conn = db.connect(args.db)
+    import charts_confiable
     slug = args.genero or "global"
-    fila_ultima = conn.execute(
-        "SELECT MAX(fecha_scrape) AS f FROM charts_tracks WHERE genero_slug=?", (slug,)
-    ).fetchone()
-    ultima = fila_ultima["f"] if fila_ultima else None
-    if not ultima:
+    rows: list[dict] = []
+    ultima = None
+    if charts_confiable.esta_configurado():
+        ultima = charts_confiable.ultima_fecha(slug)
+        if ultima:
+            rows = _filas_chart_dict(charts_confiable.obtener_novedades(slug))
+    if ultima is None:
+        conn = db.connect(args.db)
+        fila_ultima = conn.execute(
+            "SELECT MAX(fecha_scrape) AS f FROM charts_tracks WHERE genero_slug=?", (slug,)
+        ).fetchone()
+        ultima = fila_ultima["f"] if fila_ultima else None
+        if ultima:
+            rows = _filas_chart_dict(conn.execute(
+                "SELECT * FROM charts_tracks WHERE genero_slug=? AND fecha_scrape=? "
+                "AND primera_vez=? ORDER BY posicion", (slug, ultima, ultima),
+            ).fetchall())
+    if ultima is None:
         print(f"Sin datos para '{slug}'. Corré primero charts-scrape.")
         return 1
-    rows = conn.execute(
-        "SELECT * FROM charts_tracks WHERE genero_slug=? AND fecha_scrape=? "
-        "AND primera_vez=? ORDER BY posicion", (slug, ultima, ultima),
-    ).fetchall()
     if not rows:
         print(f"Sin novedades en '{slug}' desde el scrape del {ultima}.")
         return 0
     print(f"{len(rows)} novedades en '{slug}' (scrape del {ultima}):\n")
     for r in rows:
-        artistas = ", ".join(json.loads(r["artistas"] or "[]"))
+        artistas = ", ".join(r["artistas"])
         print(f"  {r['posicion']:>3}) {artistas:<30.30} {r['nombre']:<35.35} {r['sello'] or ''}")
     return 0
 
@@ -2207,6 +2245,15 @@ def main(argv=None):
     sp.add_argument("--sin-global", action="store_true",
                      help="Si NO se pasa --genero (todos los géneros), saltear el Top 100 "
                           "global porque ya está hecho")
+    sp.add_argument("--solo-global", action="store_true",
+                     help="Scrapear únicamente el Top 100 global, sin tocar géneros "
+                          "(no hace descubrimiento). Pensado para corridas puntuales, "
+                          "ej. desde un cron.")
+    sp.add_argument("--delay-seg", type=float, default=None,
+                     help="Segundos entre cada pedido a Beatport dentro de esta corrida "
+                          "(default: 1800 = 30 min). Bajalo solo si algo externo ya espacia "
+                          "las invocaciones, ej. un cron horario que llama a este comando "
+                          "una vez por hora.")
     sp.add_argument("--db", default=DEFAULT_DB)
     sp.set_defaults(func=cmd_charts_scrape)
 

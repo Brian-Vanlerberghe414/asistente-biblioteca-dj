@@ -24,6 +24,7 @@ if _PROJ not in sys.path:
     sys.path.insert(0, _PROJ)
 
 import db as db_mod
+import charts_confiable
 from gui.workers import YoutubeSearchWorker
 from gui import local_preview_server
 
@@ -39,21 +40,58 @@ def _nombre_track(nombre: str | None, mix_name: str | None) -> str:
     return nombre
 
 
+def _filas_chart(db_path: str, slug: str) -> list[dict]:
+    """Filas de un chart, normalizadas (artistas siempre como lista). Lee de
+    Supabase si está configurado (ahí escribe el agente en la nube); si no
+    hay datos ahí, cae al SQLite local."""
+    if charts_confiable.esta_configurado():
+        rows = charts_confiable.obtener_chart(slug, top=200)
+        if rows:
+            return rows
+    conn = db_mod.connect(db_path)
+    rows = conn.execute(
+        "SELECT * FROM charts_tracks WHERE genero_slug=? ORDER BY posicion",
+        (slug,),
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["artistas"] = json.loads(d["artistas"] or "[]")
+        out.append(d)
+    return out
+
+
+def _generos_disponibles(db_path: str) -> list[dict]:
+    """[{'genero_slug', 'nombre', 'ultima'}], de Supabase si está configurado
+    (refleja lo que va subiendo el agente en la nube); si no, del SQLite local."""
+    if charts_confiable.esta_configurado():
+        rows = charts_confiable.generos_disponibles()
+        if rows:
+            return rows
+    conn = db_mod.connect(db_path)
+    rows = conn.execute(
+        "SELECT genero_slug, COALESCE(MAX(genero_nombre), genero_slug) AS nombre, "
+        "MAX(fecha_scrape) AS ultima, COUNT(*) AS n "
+        "FROM charts_tracks GROUP BY genero_slug"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 class ChartsModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._filas: list[dict] = []
+        self._ultima_fecha = None
 
-    def recargar(self, conn, slug: str):
+    def recargar(self, db_path: str, slug: str):
         self.beginResetModel()
-        rows = conn.execute(
-            "SELECT * FROM charts_tracks WHERE genero_slug=? ORDER BY posicion",
-            (slug,),
-        ).fetchall()
+        rows = _filas_chart(db_path, slug)
         ultima = max((r["fecha_scrape"] for r in rows), default=None)
         self._filas = []
         for r in rows:
-            artistas = json.loads(r["artistas"] or "[]")
+            artistas = r["artistas"]
             es_novedad = bool(ultima) and r["fecha_scrape"] == ultima and r["primera_vez"] == ultima
             self._filas.append({
                 "posicion": r["posicion"],
@@ -185,14 +223,7 @@ class ChartsWidget(QWidget):
 
     # ----------------------------------------------------------------- datos
     def recargar(self):
-        conn = db_mod.connect(self._db_path)
-        generos = conn.execute(
-            "SELECT genero_slug, COALESCE(MAX(genero_nombre), genero_slug) AS nombre, "
-            "MAX(fecha_scrape) AS ultima, COUNT(*) AS n "
-            "FROM charts_tracks GROUP BY genero_slug"
-        ).fetchall()
-        conn.close()
-
+        generos = _generos_disponibles(self._db_path)
         generos = sorted(generos, key=lambda g: (g["genero_slug"] != "global", g["nombre"] or ""))
 
         slug_actual = self._combo.currentData()
@@ -207,7 +238,7 @@ class ChartsWidget(QWidget):
             self._lbl_estado.setText(
                 "Sin charts guardados todavía — corré `charts-scrape` desde la línea de comandos."
             )
-            self._model.recargar(db_mod.connect(self._db_path), "global")
+            self._model.recargar(self._db_path, "global")
             return
 
         idx = self._combo.findData(slug_actual) if slug_actual else -1
@@ -221,9 +252,7 @@ class ChartsWidget(QWidget):
         slug = self._combo.currentData()
         if not slug:
             return
-        conn = db_mod.connect(self._db_path)
-        self._model.recargar(conn, slug)
-        conn.close()
+        self._model.recargar(self._db_path, slug)
 
         n = self._model.rowCount()
         novedades = self._model.n_novedades()

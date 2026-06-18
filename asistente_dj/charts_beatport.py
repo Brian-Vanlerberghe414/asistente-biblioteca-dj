@@ -16,7 +16,9 @@ Basado en el scraper que pegó el usuario en "charts beatport/beatport_scraper.p
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import re
 
 BEATPORT_BASE = "https://www.beatport.com"
@@ -27,6 +29,11 @@ REQUEST_DELAY = 1800.0  # 30 min entre cada Top 100 (global o de un género).
 # corridas seguidas en poco tiempo (sesión 2026-06-18). Con ~46 géneros, una
 # corrida completa de `charts-scrape` tarda muchas horas — pensado para
 # dejarlo corriendo en segundo plano, no para una espera interactiva.
+# Para invocaciones puntuales (ej. el cron horario en la nube, donde el
+# espaciado entre pedidos lo da el propio cron) se puede pasar un
+# `request_delay` mucho más chico al llamar `ejecutar()`.
+
+_CACHE_GENEROS = os.path.join(os.path.dirname(__file__), "data", "beatport_generos_cache.json")
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -123,6 +130,29 @@ async def _scrape_pagina(page, url: str) -> list:
     return []
 
 
+def guardar_cache_generos(generos: list[dict]) -> None:
+    """Persiste la lista de géneros descubiertos en un JSON local, para no
+    tener que repetir el descubrimiento (un pedido más a Beatport) cada vez
+    que algo necesita la lista de slugs — por ejemplo, el cron horario en la
+    nube, que rota por todos los géneros sin volver a descubrirlos."""
+    try:
+        os.makedirs(os.path.dirname(_CACHE_GENEROS), exist_ok=True)
+        with open(_CACHE_GENEROS, "w", encoding="utf-8") as f:
+            json.dump(generos, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        log.warning(f"No se pudo guardar el cache de géneros: {exc}")
+
+
+def cargar_cache_generos() -> list[dict]:
+    """Lee la lista de géneros guardada por `guardar_cache_generos`. Devuelve
+    [] si todavía no se hizo ningún descubrimiento exitoso."""
+    try:
+        with open(_CACHE_GENEROS, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
 async def _descubrir_generos(page) -> list[dict]:
     """Recolecta todas las URL de Top 100 por género/subgénero desde la
     página de charts de Beatport."""
@@ -153,10 +183,18 @@ async def _descubrir_generos(page) -> list[dict]:
     return generos
 
 
-async def _ejecutar_async(generos_filtro: list[str] | None, incluir_global: bool) -> dict:
+async def _ejecutar_async(
+    generos_filtro: list[str] | None, incluir_global: bool, request_delay: float,
+) -> dict:
     """Devuelve {"global": [tracks] | None, "generos": {slug: {"nombre":..,
-    "tracks": [...]}}}. `generos_filtro` es una lista de slugs (ej. ["techno",
-    "tech-house"]); None = todos los géneros descubiertos."""
+    "tracks": [...]}}}.
+
+    `generos_filtro`: None = todos los géneros descubiertos (hace descubrimiento
+    en vivo y actualiza el cache); [] = ningún género (saltea el descubrimiento
+    por completo, útil para corridas "solo global"); [slug,...] = esos slugs
+    puntuales — primero intenta resolverlos contra el cache local (sin pegarle
+    a Beatport) y solo hace descubrimiento en vivo si falta alguno ahí.
+    """
     from playwright.async_api import async_playwright
 
     resultado = {"global": None, "generos": {}}
@@ -171,19 +209,31 @@ async def _ejecutar_async(generos_filtro: list[str] | None, incluir_global: bool
             if raw:
                 resultado["global"] = _parsear_tracks(raw)
 
-        if incluir_global:
-            await asyncio.sleep(REQUEST_DELAY)
-        todos_generos = await _descubrir_generos(page)
-        if not todos_generos:
-            log.warning("Descubrimiento de géneros devolvió vacío, reintentando una vez...")
-            await asyncio.sleep(REQUEST_DELAY)
-            todos_generos = await _descubrir_generos(page)
-        if generos_filtro:
-            filtro = set(generos_filtro)
-            todos_generos = [g for g in todos_generos if g["slug"] in filtro]
+        if generos_filtro == []:
+            todos_generos = []
+        else:
+            todos_generos = []
+            if generos_filtro:
+                cache = cargar_cache_generos()
+                por_slug = {g["slug"]: g for g in cache}
+                if all(slug in por_slug for slug in generos_filtro):
+                    todos_generos = [por_slug[slug] for slug in generos_filtro]
+            if not todos_generos:
+                if incluir_global:
+                    await asyncio.sleep(request_delay)
+                todos_generos = await _descubrir_generos(page)
+                if not todos_generos:
+                    log.warning("Descubrimiento de géneros devolvió vacío, reintentando una vez...")
+                    await asyncio.sleep(request_delay)
+                    todos_generos = await _descubrir_generos(page)
+                if todos_generos:
+                    guardar_cache_generos(todos_generos)
+                if generos_filtro:
+                    filtro = set(generos_filtro)
+                    todos_generos = [g for g in todos_generos if g["slug"] in filtro]
 
         for genero in todos_generos:
-            await asyncio.sleep(REQUEST_DELAY)
+            await asyncio.sleep(request_delay)
             log.info(f"Beatport: scrapeando [{genero['nombre']}]...")
             raw = await _scrape_pagina(page, genero["url"])
             if not raw:
@@ -197,10 +247,22 @@ async def _ejecutar_async(generos_filtro: list[str] | None, incluir_global: bool
     return resultado
 
 
-def ejecutar(generos_filtro: list[str] | None = None, incluir_global: bool = True) -> dict:
+def ejecutar(
+    generos_filtro: list[str] | None = None,
+    incluir_global: bool = True,
+    request_delay: float | None = None,
+) -> dict:
     """Wrapper sincrónico para llamar desde `cli.py`. Requiere
-    `pip install playwright` + `playwright install chromium`."""
-    return asyncio.run(_ejecutar_async(generos_filtro, incluir_global))
+    `pip install playwright` + `playwright install chromium`.
+
+    `request_delay`: segundos entre cada pedido a Beatport dentro de esta
+    corrida. None = usar REQUEST_DELAY (30 min, para corridas locales que
+    encadenan varios géneros). Pasar un valor chico (ej. unos pocos segundos)
+    tiene sentido solo cuando el espaciado real lo da otra cosa — por ejemplo
+    un cron horario que llama a este comando una vez por hora.
+    """
+    delay = REQUEST_DELAY if request_delay is None else request_delay
+    return asyncio.run(_ejecutar_async(generos_filtro, incluir_global, delay))
 
 
 async def _listar_generos_async() -> list[dict]:
@@ -211,6 +273,8 @@ async def _listar_generos_async() -> list[dict]:
         page = await context.new_page()
         generos = await _descubrir_generos(page)
         await browser.close()
+        if generos:
+            guardar_cache_generos(generos)
         return generos
 
 
