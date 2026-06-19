@@ -255,7 +255,12 @@ Confiable, PENDIENTE de diseñar a fondo, decidido en sesión 2026-06-19):**
 - Seguimiento de novedades funciona por género individual
   (`charts-novedades --genero X`); no hay una vista agregada de "todo lo
   nuevo en mis géneros favoritos" en una sola corrida. PENDIENTE.
-- Preview de YouTube: no empezado.
+- Preview de YouTube: **hecho** (sesión 2026-06-19) — tab de Charts en la GUI
+  (`gui/charts_widget.py`) con reproductor embebido (`youtube_preview.py`,
+  búsqueda sin API key vía yt-dlp, prioriza Extended Mix con fallback a
+  versión corta, y fallback automático entre candidatos si un video no
+  permite embeberse). Ver `gui/local_preview_server.py` para el detalle
+  técnico de por qué hace falta un mini servidor HTTP local.
 
 **Hecho, pendiente de conectar a la GUI** (el motor ya funciona por CLI):
 - **Importador de Serato** — parser binario (`serato_db.py`) y comando
@@ -272,11 +277,42 @@ Confiable, PENDIENTE de diseñar a fondo, decidido en sesión 2026-06-19):**
 
 **No empezado:**
 - **Módulo 2 completo:** charts Beatport (público→API), seguimiento nuevo
-  ingreso/salida, lista de pendientes, preview YouTube, exportar a texto.
+  ingreso/salida, lista de pendientes, exportar a texto.
 - **Creador de DJ Sets** + chequeo de derechos para YouTube (semáforo por sello).
 - **Empaquetado/instalador** + asistente de primer arranque (elegir la biblioteca).
 - **Beatport API**: pedir credenciales OAuth (uso no comercial) para género/
   subgénero oficial (hoy solo está GetSongBPM, de cobertura pobre).
+
+**Módulo 3 — Biblioteca en la nube + multiplataforma (PENDIENTE de diseñar,
+pedido por Brian en sesión 2026-06-19, sin arrancar):**
+- **Subir la biblioteca musical (los archivos de audio en sí, no solo
+  metadata) a almacenamiento en la nube.** Hoy la Biblioteca Confiable
+  (Supabase) guarda solo metadata (género/BPM/key/artista); esto es
+  guardar los tracks reales.
+- **Falta decidir el proveedor de almacenamiento** — el pedido explícito es
+  que sea económico y eficaz para este proyecto. Candidatos a evaluar más
+  adelante (ninguno descartado ni elegido todavía): Cloudflare R2 (sin costo
+  de egress, atractivo para streaming), Backblaze B2, AWS S3, Google Cloud
+  Storage, Wasabi, o el storage propio de Supabase (posible sinergia con la
+  Biblioteca Confiable que ya está ahí). Definir esto es el primer paso
+  cuando se retome este módulo.
+- **Apps cliente para Web, Android e iOS** — para poder ver, escuchar y
+  descargar los tracks de la biblioteca desde cualquier lugar, de forma
+  ordenada. Esto implica (a definir cuando se diseñe a fondo):
+  - Una capa de API/backend real — hoy todo es Python local + llamadas
+    directas a Supabase desde la app de escritorio; clientes web/mobile
+    necesitan un servicio intermedio (auth, streaming de audio, etc.), no
+    pegarle directo a Supabase con la misma clave que usa la app de escritorio.
+  - Streaming/descarga de audio (range requests o similar) desde donde sea
+    que viva el storage elegido.
+  - Stack todavía sin decidir para web/Android/iOS (no asumir React/Flutter/
+    nativo hasta que se hable explícitamente con Brian).
+  - Cómo se sincroniza esto con la biblioteca local de cada DJ en su PC
+    (¿la nube es la fuente de verdad, o un espejo/backup de la local?).
+- Relacionado con [[project-punch-list-calidad]] y el plan de "Feedback DJ"
+  ([[project-feedback-dj-beta]]): cuantos más usuarios/dispositivos toquen la
+  Biblioteca Confiable y el storage compartido, más urgente se vuelve cerrar
+  el modelo de confianza multi-usuario antes de escalar esto.
 
 **Hecho** (ya no es roadmap, pero quedaba listado como pendiente antes):
 interfaz gráfica PySide6 (`app.py` + `gui/`, con reproductor + cola + shuffle
