@@ -21,7 +21,11 @@ supabase>=2.3
 
 # playwright: Módulo 2 — scraper de los charts de Beatport (SPA, sin API oficial).
 # Instalá con: pip install playwright   y luego:   playwright install chromium
-playwright>=1.44
+# Fijado a 1.56.0 (no >=): el entorno en la nube de las rutinas programadas trae
+# precacheado Chromium revisión 1194, que matchea esta versión exacta de
+# playwright; versiones más nuevas (ej. 1.60) piden una revisión de Chromium que
+# no está cacheada y hay que bajarla de cero en cada corrida.
+playwright==1.56.0
 
 # yt-dlp: Módulo 2 — buscar previews en YouTube para los tracks de los charts
 # (sin API key, vía búsqueda ytsearch). El reproductor embebido en la GUI usa
