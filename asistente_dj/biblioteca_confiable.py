@@ -30,6 +30,13 @@ _cliente: Optional["_Client"] = None
 # ──────────────────────────────────────────────────── cliente singleton ──────
 
 def _get_cliente() -> Optional["_Client"]:
+    """Cliente de Supabase. Si hay una cuenta de servicio configurada
+    (`supabase_service_email`/`supabase_service_password` — ver Fase 1 del
+    Módulo 3, backend multi-usuario), inicia sesión con ella: desde que se
+    endurecieron las políticas RLS de `biblioteca_tracks`/`artistas_generos`
+    (escritura solo para `authenticated`, ya no `anon`), escribir sin esa
+    sesión falla con permission denied. Si no hay cuenta de servicio
+    configurada, sigue funcionando solo para lectura (que sigue abierta)."""
     global _cliente
     if not _SUPABASE_DISPONIBLE:
         return None
@@ -41,7 +48,12 @@ def _get_cliente() -> Optional["_Client"]:
     if not url or not key:
         return None
     try:
-        _cliente = create_client(url, key)
+        cliente = create_client(url, key)
+        email = cfg.get("supabase_service_email", "").strip()
+        password = cfg.get("supabase_service_password", "").strip()
+        if email and password:
+            cliente.auth.sign_in_with_password({"email": email, "password": password})
+        _cliente = cliente
     except Exception as e:
         print(f"  [biblioteca] No se pudo conectar a Supabase: {e}")
         _cliente = None
