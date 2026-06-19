@@ -261,17 +261,21 @@ Confiable, PENDIENTE de diseñar a fondo, decidido en sesión 2026-06-19):**
   versión corta, y fallback automático entre candidatos si un video no
   permite embeberse). Ver `gui/local_preview_server.py` para el detalle
   técnico de por qué hace falta un mini servidor HTTP local.
-  **Caso conocido sin resolver:** algunos tracks de sellos grandes (ej.
-  "Disco Cherry" de Purple Disco Machine, sello Sweat It Out/Sony) tienen
-  TODOS sus candidatos de YouTube con embed deshabilitado por Content ID —
-  no hay preview posible ahí, es restricción real del dueño, no un bug.
-  **PENDIENTE (a pedido de Brian, sesión 2026-06-19, sin implementar):**
-  agregar Spotify como fallback cuando YouTube falle del todo. Trade-off
-  importante: el embed de Spotify es mucho más confiable/permisivo que el de
-  YouTube (está diseñado para insertarse en cualquier sitio), pero sin login
-  del usuario solo reproduce 30s de preview, no el track completo. Requiere
-  registrar una app gratis en Spotify for Developers (Client ID + Secret)
-  para poder *buscar* el track (el embed en sí no necesita key).
+  **Caso conocido:** algunos tracks de sellos grandes (ej. "Disco Cherry" de
+  Purple Disco Machine, sello Sweat It Out/Sony) tienen TODOS sus candidatos
+  de YouTube con embed deshabilitado por Content ID — restricción real del
+  dueño, no un bug. **Resuelto (sesión 2026-06-19) con fallback a Spotify**:
+  `spotify_preview.py` (búsqueda vía Client Credentials, credenciales en
+  `asistente_config.json` con `python cli.py config --spotify-client-id ID
+  --spotify-client-secret SECRET`, gratis en developer.spotify.com/dashboard).
+  La búsqueda en Spotify corre en paralelo a la de YouTube (sin agregar
+  espera); si TODOS los candidatos de YouTube fallan al embeber (el handler
+  `onError` del IFrame API los agota uno por uno), la página cae sola al
+  embed de Spotify. Trade-off conocido y aceptado: sin login del usuario,
+  Spotify solo reproduce 30s de preview, no el track completo. La etiqueta
+  de estado en la GUI detecta este fallback (chequea con `runJavaScript` si
+  apareció un iframe de Spotify) y avisa "(Spotify, 30s — YouTube
+  restringido)" en vez de mostrar el dato de YouTube como si hubiera sonado.
 
 **Hecho, pendiente de conectar a la GUI** (el motor ya funciona por CLI):
 - **Importador de Serato** — parser binario (`serato_db.py`) y comando
