@@ -132,7 +132,7 @@ def buscar(artista: str, titulo: str,
 
 
 def agregar(artista: str, titulo: str, duracion_seg: float,
-            genero: str, subgenero: Optional[str] = None,
+            genero: Optional[str] = None, subgenero: Optional[str] = None,
             sello: Optional[str] = None, bpm: Optional[float] = None,
             camelot: Optional[str] = None,
             fuente: str = "manual") -> bool:
@@ -192,5 +192,59 @@ def listar(genero: Optional[str] = None, limit: int = 50) -> list[dict]:
         if genero:
             q = q.eq("genero", genero)
         return q.execute().data or []
+    except Exception:
+        return []
+
+
+# ──────────────────────────────────────────── registro artista → género ──────
+# Qué género(s)/subgénero(s) produce cada artista, derivado de los tracks que
+# van pasando por la Biblioteca Confiable (charts de Beatport, imports, etc.).
+# Ej.: "Vegas produce psytrance".
+
+_TABLA_ARTISTAS = "artistas_generos"
+
+
+def registrar_genero_artista(artista: str, genero: Optional[str],
+                              subgenero: Optional[str] = None) -> bool:
+    """Registra que `artista` produce `genero`/`subgenero`. Idempotente: no
+    duplica la combinación artista+género+subgénero, solo actualiza la fecha.
+    No hace nada si no hay género (no tiene sentido registrar "ninguno")."""
+    if not genero:
+        return False
+    cliente = _get_cliente()
+    if cliente is None:
+        return False
+    data = {
+        "artista": artista.strip(),
+        "artista_norm": _norm(artista),
+        "genero": genero,
+        "subgenero": subgenero or "",
+    }
+    try:
+        (
+            cliente.table(_TABLA_ARTISTAS)
+            .upsert(data, on_conflict="artista_norm,genero,subgenero")
+            .execute()
+        )
+        return True
+    except Exception as e:
+        print(f"  [biblioteca] Error registrando artista/género: {e}")
+        return False
+
+
+def generos_de_artista(nombre: str) -> list[dict]:
+    """Géneros/subgéneros registrados para un artista (búsqueda parcial,
+    sin distinguir mayúsculas/acentos)."""
+    cliente = _get_cliente()
+    if cliente is None:
+        return []
+    try:
+        resp = (
+            cliente.table(_TABLA_ARTISTAS)
+            .select("artista, genero, subgenero")
+            .ilike("artista_norm", f"%{_norm(nombre)}%")
+            .execute()
+        )
+        return resp.data or []
     except Exception:
         return []

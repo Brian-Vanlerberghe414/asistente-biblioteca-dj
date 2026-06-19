@@ -690,6 +690,18 @@ def cmd_biblioteca(args):
             sub = t.get("subgenero") or "—"
             print(f"{(t['artista'] or ''):<35.35} {(t['titulo'] or ''):<40.40} "
                   f"{t['genero']:<20} {sub}")
+
+    elif args.accion == "artista":
+        registros = biblioteca_confiable.generos_de_artista(args.nombre)
+        if not registros:
+            print(f"Sin géneros registrados para '{args.nombre}'.")
+            return 0
+        generos = sorted({
+            f"{r['genero']} / {r['subgenero']}" if r.get("subgenero") else r["genero"]
+            for r in registros
+        })
+        artista = registros[0]["artista"]
+        print(f"{artista} produce: " + ", ".join(generos))
     return 0
 
 
@@ -723,7 +735,11 @@ def cmd_charts_generos(args):
 def cmd_charts_scrape(args):
     """Scrapea el Top 100 global y/o por género de Beatport, lo guarda en la
     base y sube automáticamente a la Biblioteca Confiable (Supabase) cada
-    track nuevo cuyo género se pueda mapear al árbol propio."""
+    track del chart (nombre, artista, BPM, key) y registra qué género produce
+    cada artista. Si el género de Beatport no tiene mapeo al árbol propio, se
+    sube igual con el nombre de Beatport tal cual — nunca se pierde info por
+    falta de mapeo. La info del chart siempre tiene prioridad: si el track ya
+    estaba con un dato distinto, se actualiza con el del chart."""
     _print_header()
     import charts_beatport
     import biblioteca_confiable
@@ -759,9 +775,16 @@ def cmd_charts_scrape(args):
     subidos_total = 0
 
     def _subir_a_biblioteca(t, genero, subgenero):
-        if not genero or not subir_biblioteca:
+        """Sube nombre/artista/bpm/key a la Biblioteca Confiable. `genero`
+        puede venir del mapeo al árbol propio o, si no hay mapeo (género de
+        Beatport sin equivalente todavía), del nombre crudo de Beatport —
+        nunca se pierde la info por falta de mapeo. La info del chart manda
+        siempre: agregar() hace upsert por artista+título, así que si ya
+        había un dato distinto (ej. otro key) lo pisa con el del chart."""
+        if not subir_biblioteca:
             return False
-        artista = ", ".join(t["artistas"]) if t["artistas"] else None
+        artistas = t["artistas"] or []
+        artista = ", ".join(artistas) if artistas else None
         if not artista or not t["nombre"] or not t["duracion_ms"]:
             return False
         titulo = t["nombre"]
@@ -772,6 +795,9 @@ def cmd_charts_scrape(args):
             genero=genero, subgenero=subgenero, sello=t["sello"], bpm=t["bpm"],
             camelot=charts_beatport.key_a_camelot(t["key"]), fuente="beatport_chart",
         )
+        if ok and genero:
+            for art in artistas:
+                biblioteca_confiable.registrar_genero_artista(art, genero, subgenero)
         return ok
 
     subir_charts_cloud = charts_confiable.esta_configurado()
@@ -793,12 +819,16 @@ def cmd_charts_scrape(args):
             es_nuevo = db.upsert_chart_track(conn, data, fecha)
             if es_nuevo:
                 nuevos += 1
-                if es_global:
-                    genero, subgenero = charts_beatport.mapear_genero_por_nombre(t.get("genero_pista"))
-                else:
-                    genero, subgenero = charts_beatport.mapear_genero_por_slug(slug)
-                if _subir_a_biblioteca(t, genero, subgenero):
-                    subidos += 1
+            if es_global:
+                genero, subgenero = charts_beatport.mapear_genero_por_nombre(t.get("genero_pista"))
+                if not genero:
+                    genero, subgenero = t.get("genero_pista"), None
+            else:
+                genero, subgenero = charts_beatport.mapear_genero_por_slug(slug)
+                if not genero:
+                    genero, subgenero = nombre_genero, None
+            if _subir_a_biblioteca(t, genero, subgenero):
+                subidos += 1
         conn.commit()
         if subir_charts_cloud:
             charts_confiable.upsert_tracks(tracks, slug, nombre_genero, fecha)
@@ -2138,11 +2168,13 @@ def main(argv=None):
 
     sp = sub.add_parser("biblioteca",
                         help="Gestionar la Biblioteca Confiable en Supabase")
-    sp.add_argument("accion", choices=["estado", "agregar", "listar"],
-                    help="estado: verificar conexión | agregar: subir track | listar: ver registros")
+    sp.add_argument("accion", choices=["estado", "agregar", "listar", "artista"],
+                    help="estado: verificar conexión | agregar: subir track | "
+                         "listar: ver registros | artista: ver géneros que produce")
     sp.add_argument("--ruta", help="Ruta del track a agregar (para accion=agregar)")
     sp.add_argument("--genero", help="Filtrar por género (para accion=listar)")
     sp.add_argument("--limit", type=int, default=50, help="Máximo de resultados (listar)")
+    sp.add_argument("nombre", nargs="?", help="Nombre del artista (para accion=artista)")
     sp.add_argument("--db", default=DEFAULT_DB)
     sp.set_defaults(func=cmd_biblioteca)
 
