@@ -169,6 +169,20 @@ python app.py
   `python cli.py config --supabase-url URL --supabase-key KEY`. Si no está
   configurada o falla la red, el lookup devuelve `None` sin romper nada y el
   flujo sigue por el clasificador de tags normalmente.
+- **Escritura directa a la Biblioteca Confiable — SOLO mientras la app está en
+  desarrollo.** Hoy (sesión 2026-06-19) tanto el scraper de charts como las
+  ediciones manuales del DJ en la GUI escriben *directo* a `biblioteca_tracks`
+  (`biblioteca_confiable.agregar()`), con una corrida manual marcada
+  `fuente='manual'` protegida de que la pise cualquier subida automática
+  después. **Esto es un atajo temporal, no el diseño final.** Para la beta V1,
+  el flujo cambia (ver roadmap más abajo): el escaneo seguirá leyendo de la
+  Biblioteca Confiable como hoy, pero los cambios manuales de los usuarios ya
+  NO van a escribir ahí directo — van a pasar antes por una tabla intermedia
+  ("Feedback DJ") y un análisis/validación, y solo después de aprobarse pasan
+  a la Biblioteca Confiable. El código actual de escritura directa manual
+  (`gui/track_model.py:guardar_ids`, la protección por `fuente='manual'` en
+  `biblioteca_confiable.agregar()`) hay que reemplazarlo en ese momento, no
+  solo extenderlo.
 - **Charts de Beatport (Módulo 2):** lee páginas públicas con Playwright (sin
   credenciales); migrar a la API oficial v4 (OAuth) cuando lleguen. Ver detalle
   en el roadmap más abajo.
@@ -192,6 +206,33 @@ manual de tracks a comprar/bajar, con `conseguido` 0/1).
 Las columnas nuevas se agregan por migración suave en `db.connect()`.
 
 ## Lo que falta (roadmap)
+
+**Beta V1 — "Feedback DJ" (rediseño del flujo de escritura a la Biblioteca
+Confiable, PENDIENTE de diseñar a fondo, decidido en sesión 2026-06-19):**
+- Hoy, en desarrollo, los cambios manuales del DJ en la GUI se suben *directo*
+  a `biblioteca_tracks` (con protección `fuente='manual'`). Esto es un atajo
+  de desarrollo, no el diseño final — confiar a ciegas en la corrección de
+  cualquier usuario de la beta (no solo Brian) sin revisión es riesgoso una
+  vez que esto salga de un entorno controlado.
+- **Diseño futuro:** nueva tabla/proyecto en Supabase, **"Feedback DJ"**,
+  separada de `biblioteca_tracks`. Los cambios manuales de los usuarios van
+  ahí primero (no a la Biblioteca Confiable directo).
+- Esos registros de Feedback DJ pasan por un **análisis previo** (un prompt/
+  pipeline de validación — todavía sin diseñar, queda pendiente de trabajar
+  más adelante) antes de promoverse a `biblioteca_tracks`. La idea es filtrar
+  errores, trolling o correcciones de baja confianza antes de que afecten a
+  *todos* los DJs que comparten la Biblioteca Confiable.
+- El **escaneo** (`scanner.scan()`) sigue leyendo de la Biblioteca Confiable
+  igual que ahora — eso no cambia. Lo que cambia es de dónde vienen las
+  escrituras manuales.
+- Implica reemplazar (no solo extender) el código actual de escritura manual
+  directa: `gui/track_model.py:guardar_ids` (hoy llama a
+  `biblioteca_confiable.agregar(..., fuente="manual")` directo) y la
+  protección por `fuente='manual'` en `biblioteca_confiable.agregar()`.
+- El scraper de charts de Beatport (`cli.py:cmd_charts_scrape`) probablemente
+  sigue escribiendo directo a `biblioteca_tracks` como hoy (es una fuente
+  automática/pública, no la corrección de un usuario) — a confirmar cuando se
+  diseñe esto a fondo.
 
 **Módulo 2 — en progreso (primera pieza: charts de Beatport):**
 - `charts_beatport.py` scrapea con Playwright (Beatport es una SPA en
