@@ -15,7 +15,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
-_N_RESULTADOS = 6
+_N_RESULTADOS = 10
 _UMBRAL_MINIMO = 1.5   # score mínimo para aceptar un resultado como válido
 
 
@@ -65,7 +65,7 @@ def _buscar_crudo(query: str) -> list[dict]:
 
 
 def buscar_candidatos(
-    artistas: list[str], titulo: str, mix_name: Optional[str] = None, n: int = 3
+    artistas: list[str], titulo: str, mix_name: Optional[str] = None, n: int = 6
 ) -> list[ResultadoYoutube]:
     """Busca hasta `n` candidatos en YouTube para `titulo` de `artistas`,
     ordenados de mejor a peor match.
