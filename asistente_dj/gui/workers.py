@@ -169,6 +169,31 @@ class YoutubeSearchWorker(QThread):
         self.terminado.emit(candidatos)
 
 
+class SpotifySearchWorker(QThread):
+    """Busca un track en Spotify para un track de los charts — fallback
+    cuando ningún candidato de YouTube permite embeberse (restricción del
+    dueño). Corre en paralelo a YoutubeSearchWorker para no agregar espera
+    extra cuando YouTube sí funciona."""
+    terminado = Signal(object)   # spotify_preview.ResultadoSpotify | None
+
+    def __init__(self, artistas: list[str], titulo: str, mix_name: str | None):
+        super().__init__()
+        self.artistas = artistas
+        self.titulo = titulo
+        self.mix_name = mix_name
+
+    def run(self):
+        proj = os.path.join(os.path.dirname(__file__), "..")
+        if proj not in sys.path:
+            sys.path.insert(0, proj)
+        import spotify_preview
+        try:
+            resultado = spotify_preview.buscar(self.artistas, self.titulo, self.mix_name)
+        except Exception:
+            resultado = None
+        self.terminado.emit(resultado)
+
+
 class ArtistasWorker(QThread):
     """Enriquece la BD de artistas consultando Last.fm y Beatport."""
     progreso = Signal(str)

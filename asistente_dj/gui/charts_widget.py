@@ -11,7 +11,7 @@ import os
 import sys
 from datetime import date
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QUrl
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
@@ -25,7 +25,7 @@ if _PROJ not in sys.path:
 
 import db as db_mod
 import charts_confiable
-from gui.workers import YoutubeSearchWorker
+from gui.workers import YoutubeSearchWorker, SpotifySearchWorker
 from gui import local_preview_server
 
 _COLS    = ["posicion", "track", "artistas_str", "sello", "bpm_str", "key"]
@@ -150,6 +150,9 @@ class ChartsWidget(QWidget):
         self._db_path = db_path
         self._model = ChartsModel(self)
         self._yt_worker: YoutubeSearchWorker | None = None
+        self._spotify_worker: SpotifySearchWorker | None = None
+        self._busqueda_yt: list | None = None       # None = pendiente
+        self._busqueda_spotify = "pendiente"          # "pendiente" | ResultadoSpotify | None
         self._build_ui()
         self.recargar()
 
@@ -310,8 +313,7 @@ class ChartsWidget(QWidget):
         filas = sorted({i.row() for i in self._tabla.selectionModel().selectedRows()})
         if not filas:
             QMessageBox.information(
-                self, "Escuchar en YouTube",
-                "Seleccioná un track de la tabla primero."
+                self, "Escuchar", "Seleccioná un track de la tabla primero."
             )
             return
         fila = self._model.fila(filas[0])
@@ -323,22 +325,48 @@ class ChartsWidget(QWidget):
 
         self._btn_escuchar.setEnabled(False)
         self._yt_view.setUrl(QUrl("about:blank"))
-        self._lbl_yt_estado.setText(f"Buscando en YouTube: {fila['artistas_str']} — {fila['nombre_raw']}…")
+        self._lbl_yt_estado.setText(f"Buscando: {fila['artistas_str']} — {fila['nombre_raw']}…")
+        self._busqueda_yt = None
+        self._busqueda_spotify = "pendiente"
 
-        self._yt_worker = YoutubeSearchWorker(
-            fila["artistas_raw"], fila["nombre_raw"], fila["mix_name_raw"]
-        )
+        artistas, titulo, mix = fila["artistas_raw"], fila["nombre_raw"], fila["mix_name_raw"]
+
+        self._yt_worker = YoutubeSearchWorker(artistas, titulo, mix)
         self._yt_worker.terminado.connect(self._on_youtube_encontrado)
         self._yt_worker.start()
 
+        # Se busca en Spotify en paralelo (no después) para no agregar
+        # espera extra cuando YouTube funciona bien — solo se usa el
+        # resultado si todos los candidatos de YouTube fallan al embeber.
+        self._spotify_worker = SpotifySearchWorker(artistas, titulo, mix)
+        self._spotify_worker.terminado.connect(self._on_spotify_encontrado)
+        self._spotify_worker.start()
+
+    def _on_spotify_encontrado(self, resultado):
+        self._busqueda_spotify = resultado
+        if self._busqueda_yt is not None:
+            self._renderizar(self._busqueda_yt)
+
     def _on_youtube_encontrado(self, candidatos: list):
         self._btn_escuchar.setEnabled(True)
-        if not candidatos:
-            self._lbl_yt_estado.setText(
-                "No se encontró un preview en YouTube para este track."
-            )
+        self._busqueda_yt = candidatos
+        # Si Spotify todavía no contestó, se renderiza igual con lo que haya
+        # de YouTube — si hace falta el fallback más tarde, _on_spotify_encontrado
+        # vuelve a renderizar cuando llegue.
+        self._renderizar(candidatos)
+
+    def _renderizar(self, candidatos: list):
+        if not candidatos and self._busqueda_spotify == "pendiente":
+            self._lbl_yt_estado.setText("No se encontró un preview en YouTube — probando Spotify…")
             return
-        mejor = candidatos[0]
+        spotify = self._busqueda_spotify if self._busqueda_spotify != "pendiente" else None
+        spotify_id = spotify.track_id if spotify else ""
+
+        if not candidatos and not spotify:
+            self._lbl_yt_estado.setText("No se encontró un preview en YouTube ni en Spotify para este track.")
+            return
+
+        mejor = candidatos[0] if candidatos else None
         ids_js = ",".join(f"'{c.video_id}'" for c in candidatos)
         # YouTube rechaza el embed si el documento no tiene un origen http(s)
         # real (sin eso manda "video no disponible", error 152 — confirmado
@@ -346,7 +374,8 @@ class ChartsWidget(QWidget):
         # HTML desde un mini servidor local (gui/local_preview_server.py) en
         # vez de cargarlo directo. Además, algunos videos no permiten
         # embeber (restricción del dueño, error 101/150) — el handler
-        # onError prueba el siguiente candidato.
+        # onError prueba el siguiente candidato, y si se agotan todos, cae
+        # al embed de Spotify (más permisivo, pero solo 30s sin login).
         html = f"""<html><head><style>
             html,body{{margin:0;background:#000;height:100%;}}
             #player{{width:100%;height:100%;}}
@@ -355,9 +384,25 @@ class ChartsWidget(QWidget):
             <div id="player"></div>
             <script>
             var candidatos = [{ids_js}];
+            var spotifyId = "{spotify_id}";
             var idx = 0;
             var player;
+            function irASpotify() {{
+                if (spotifyId) {{
+                    document.getElementById('player').outerHTML =
+                        '<iframe style="border-radius:12px" width="100%" height="100%" '
+                        + 'src="https://open.spotify.com/embed/track/' + spotifyId + '?utm_source=generator" '
+                        + 'frameBorder="0" allowfullscreen '
+                        + 'allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture">'
+                        + '</iframe>';
+                }} else {{
+                    document.getElementById('player').outerHTML =
+                        '<div id="msg">Ninguno de los resultados encontrados está '
+                        + 'disponible para reproducir embebido (ni en YouTube ni en Spotify).</div>';
+                }}
+            }}
             function onYouTubeIframeAPIReady() {{
+                if (!candidatos.length) {{ irASpotify(); return; }}
                 player = new YT.Player('player', {{
                     height: '100%', width: '100%', videoId: candidatos[idx],
                     playerVars: {{autoplay: 1, rel: 0}},
@@ -369,18 +414,40 @@ class ChartsWidget(QWidget):
                 if (idx < candidatos.length) {{
                     player.loadVideoById(candidatos[idx]);
                 }} else {{
-                    document.getElementById('player').outerHTML =
-                        '<div id="msg">Ninguno de los resultados encontrados está '
-                        + 'disponible para reproducir embebido.</div>';
+                    irASpotify();
                 }}
             }}
-            var tag = document.createElement('script');
-            tag.src = "https://www.youtube.com/iframe_api";
-            document.head.appendChild(tag);
+            if (candidatos.length) {{
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                document.head.appendChild(tag);
+            }} else {{
+                irASpotify();
+            }}
             </script></body></html>"""
         self._yt_view.setUrl(QUrl(local_preview_server.set_html(html)))
-        if mejor.es_extended:
-            badge = "✓ Extended Mix"
-        else:
-            badge = "⚠ No se encontró la Extended Mix — reproduciendo la versión corta"
-        self._lbl_yt_estado.setText(f"{badge}  ·  {mejor.titulo}")
+
+        if mejor:
+            badge = "✓ Extended Mix" if mejor.es_extended else "⚠ Sin Extended Mix — versión corta"
+            self._lbl_yt_estado.setText(f"{badge}  ·  {mejor.titulo}")
+            if spotify:
+                # El fallback a Spotify pasa del lado de JS (dentro de la página),
+                # sin avisarle a Python — se chequea unas veces si terminó
+                # cayendo a Spotify para corregir la etiqueta (que si no,
+                # seguiría diciendo "YouTube" aunque esté sonando Spotify).
+                for ms in (2500, 5000, 8500, 13000):
+                    QTimer.singleShot(ms, lambda sp=spotify: self._chequear_fallback_spotify(sp))
+        elif spotify:
+            badge = "✓ Extended Mix (Spotify, 30s)" if spotify.es_extended else "⚠ Spotify, versión corta (30s)"
+            self._lbl_yt_estado.setText(f"{badge}  ·  {spotify.titulo}")
+
+    def _chequear_fallback_spotify(self, spotify):
+        def _callback(es_spotify):
+            if es_spotify:
+                badge = "✓ Extended Mix" if spotify.es_extended else "⚠ Versión corta"
+                self._lbl_yt_estado.setText(
+                    f"{badge} (Spotify, 30s — YouTube restringido)  ·  {spotify.titulo}"
+                )
+        self._yt_view.page().runJavaScript(
+            '!!document.querySelector(\'iframe[src*="spotify.com"]\')', _callback
+        )

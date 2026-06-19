@@ -617,20 +617,31 @@ def cmd_config(args):
     if args.supabase_key:
         settings.set_("supabase_key", args.supabase_key)
         print(f"Supabase API key guardada.")
+    if args.spotify_client_id:
+        settings.set_("spotify_client_id", args.spotify_client_id)
+        print("Spotify Client ID guardado.")
+    if args.spotify_client_secret:
+        settings.set_("spotify_client_secret", args.spotify_client_secret)
+        print("Spotify Client Secret guardado.")
 
     bib = settings.get("biblioteca")
     cfg = settings.cargar()
     sb_url = cfg.get("supabase_url", "")
     sb_key = cfg.get("supabase_key", "")
+    sp_id = cfg.get("spotify_client_id", "")
+    sp_secret = cfg.get("spotify_client_secret", "")
 
     print(f"\nBiblioteca del asistente : {bib or '(sin configurar)'}")
     print(f"Supabase URL             : {sb_url or '(sin configurar)'}")
     print(f"Supabase API key         : {'✓ configurada' if sb_key else '(sin configurar)'}")
+    print(f"Spotify Client ID/Secret : {'✓ configurados' if (sp_id and sp_secret) else '(sin configurar)'}")
 
     if not bib:
         print('\nFijá la biblioteca con:  python cli.py config --biblioteca "C:\\ruta"')
     if not sb_url or not sb_key:
         print("Configurá Supabase con:  python cli.py config --supabase-url URL --supabase-key KEY")
+    if not sp_id or not sp_secret:
+        print("Configurá Spotify con:  python cli.py config --spotify-client-id ID --spotify-client-secret SECRET")
     return 0
 
 
@@ -2164,6 +2175,10 @@ def main(argv=None):
                     help="URL del proyecto Supabase (Settings → API → Project URL)")
     sp.add_argument("--supabase-key", dest="supabase_key",
                     help="API key anon/public de Supabase (Settings → API → anon key)")
+    sp.add_argument("--spotify-client-id", dest="spotify_client_id",
+                    help="Client ID de tu app en developer.spotify.com/dashboard")
+    sp.add_argument("--spotify-client-secret", dest="spotify_client_secret",
+                    help="Client Secret de tu app en developer.spotify.com/dashboard")
     sp.set_defaults(func=cmd_config)
 
     sp = sub.add_parser("biblioteca",
