@@ -261,6 +261,17 @@ Confiable, PENDIENTE de diseñar a fondo, decidido en sesión 2026-06-19):**
   versión corta, y fallback automático entre candidatos si un video no
   permite embeberse). Ver `gui/local_preview_server.py` para el detalle
   técnico de por qué hace falta un mini servidor HTTP local.
+  **Caso conocido sin resolver:** algunos tracks de sellos grandes (ej.
+  "Disco Cherry" de Purple Disco Machine, sello Sweat It Out/Sony) tienen
+  TODOS sus candidatos de YouTube con embed deshabilitado por Content ID —
+  no hay preview posible ahí, es restricción real del dueño, no un bug.
+  **PENDIENTE (a pedido de Brian, sesión 2026-06-19, sin implementar):**
+  agregar Spotify como fallback cuando YouTube falle del todo. Trade-off
+  importante: el embed de Spotify es mucho más confiable/permisivo que el de
+  YouTube (está diseñado para insertarse en cualquier sitio), pero sin login
+  del usuario solo reproduce 30s de preview, no el track completo. Requiere
+  registrar una app gratis en Spotify for Developers (Client ID + Secret)
+  para poder *buscar* el track (el embed en sí no necesita key).
 
 **Hecho, pendiente de conectar a la GUI** (el motor ya funciona por CLI):
 - **Importador de Serato** — parser binario (`serato_db.py`) y comando
