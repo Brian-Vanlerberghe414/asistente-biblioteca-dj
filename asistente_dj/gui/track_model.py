@@ -134,6 +134,7 @@ class TrackModel(QAbstractTableModel):
     def guardar_ids(self, ids: list[int]):
         import db as db_mod
         conn = db_mod.connect(self._db_path)
+        ids_guardados = []
         for track_id in ids:
             if track_id not in self._pendientes:
                 continue
@@ -143,7 +144,28 @@ class TrackModel(QAbstractTableModel):
             conn.execute(
                 f"UPDATE tracks SET {sets}, confianza='manual' WHERE id=?", vals
             )
+            ids_guardados.append(track_id)
         conn.commit()
+
+        # Una corrección manual es la verdad final: se sube a la Biblioteca
+        # Confiable con fuente="manual", que queda protegida ahí (ningún
+        # scrape de charts ni otro DJ la va a pisar después).
+        import biblioteca_confiable
+        if ids_guardados and biblioteca_confiable.esta_configurado():
+            for track_id in ids_guardados:
+                row = conn.execute(
+                    "SELECT artista, titulo, duracion_seg, genero, subgenero, "
+                    "sello, bpm, camelot FROM tracks WHERE id=?", (track_id,)
+                ).fetchone()
+                if row and row["artista"] and row["titulo"]:
+                    biblioteca_confiable.agregar(
+                        artista=row["artista"], titulo=row["titulo"],
+                        duracion_seg=row["duracion_seg"] or 0,
+                        genero=row["genero"], subgenero=row["subgenero"],
+                        sello=row["sello"], bpm=row["bpm"], camelot=row["camelot"],
+                        fuente="manual",
+                    )
+
         conn.close()
         self.beginResetModel()
         self.endResetModel()

@@ -150,11 +150,27 @@ def agregar(artista: str, titulo: str, duracion_seg: float,
             print("    python cli.py config --supabase-url URL --supabase-key KEY")
         return False
 
+    art_norm, tit_norm = _norm(artista), _norm(titulo)
+    if fuente != "manual":
+        # Una corrección manual del DJ (la propia o la de otro, vía la misma
+        # Biblioteca Confiable) es la verdad final — nada automático (charts,
+        # scans) la puede pisar después.
+        try:
+            existe = (
+                cliente.table(_TABLA).select("fuente")
+                .eq("artista_norm", art_norm).eq("titulo_norm", tit_norm)
+                .limit(1).execute()
+            )
+            if existe.data and existe.data[0].get("fuente") == "manual":
+                return True
+        except Exception:
+            pass  # si falla la consulta de protección, seguimos con el upsert normal
+
     data = {
         "artista":      artista.strip(),
         "titulo":       titulo.strip(),
-        "artista_norm": _norm(artista),
-        "titulo_norm":  _norm(titulo),
+        "artista_norm": art_norm,
+        "titulo_norm":  tit_norm,
         "duracion_seg": round(duracion_seg, 2),
         "genero":       genero,
         "subgenero":    subgenero,
