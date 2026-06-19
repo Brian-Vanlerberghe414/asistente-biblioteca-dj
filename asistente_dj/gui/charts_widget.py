@@ -14,9 +14,10 @@ from datetime import date
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QUrl
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
     QMessageBox, QPushButton, QSplitter, QTableView, QVBoxLayout, QWidget,
 )
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 _PROJ = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
@@ -31,6 +32,29 @@ from gui import local_preview_server
 _COLS    = ["posicion", "track", "artistas_str", "sello", "bpm_str", "key"]
 _HEADERS = ["#", "Track", "Artistas", "Sello", "BPM", "Key"]
 _COLOR_NOVEDAD = QColor(0, 229, 255, 28)   # halo cyan tenue (ver theme.CYAN)
+
+
+class _PreviewPage(QWebEnginePage):
+    """QWebEngineView no abre ventanas emergentes por defecto — sin esto, el
+    botón "Log in" del widget de Spotify (necesario para reproducir el track
+    completo en vez de los 30s de preview, si el DJ tiene Premium) no hace
+    nada. Acá se le da un diálogo real donde mostrar ese popup de login."""
+
+    def createWindow(self, _tipo):
+        vista = self.parent()
+        dialogo = QDialog(vista.window() if vista else None)
+        dialogo.setWindowTitle("Iniciar sesión en Spotify")
+        dialogo.resize(420, 600)
+        lay = QVBoxLayout(dialogo)
+        lay.setContentsMargins(0, 0, 0, 0)
+        vista_popup = QWebEngineView(dialogo)
+        lay.addWidget(vista_popup)
+        vista_popup.page().windowCloseRequested.connect(dialogo.close)
+        dialogo.show()
+        # Guardar referencias para que no se destruyan apenas vuelve esta función.
+        self._popups = getattr(self, "_popups", [])
+        self._popups.append((dialogo, vista_popup))
+        return vista_popup.page()
 
 
 def _nombre_track(nombre: str | None, mix_name: str | None) -> str:
@@ -221,6 +245,7 @@ class ChartsWidget(QWidget):
         self._lbl_yt_estado.setWordWrap(True)
         panel_lay.addWidget(self._lbl_yt_estado)
         self._yt_view = QWebEngineView()
+        self._yt_view.setPage(_PreviewPage(self._yt_view))
         panel_lay.addWidget(self._yt_view, stretch=1)
 
         splitter = QSplitter(Qt.Horizontal)
