@@ -255,27 +255,27 @@ Confiable, PENDIENTE de diseñar a fondo, decidido en sesión 2026-06-19):**
 - Seguimiento de novedades funciona por género individual
   (`charts-novedades --genero X`); no hay una vista agregada de "todo lo
   nuevo en mis géneros favoritos" en una sola corrida. PENDIENTE.
-- Preview de YouTube: **hecho** (sesión 2026-06-19) — tab de Charts en la GUI
-  (`gui/charts_widget.py`) con reproductor embebido (`youtube_preview.py`,
-  búsqueda sin API key vía yt-dlp, prioriza Extended Mix con fallback a
-  versión corta, y fallback automático entre candidatos si un video no
-  permite embeberse). Ver `gui/local_preview_server.py` para el detalle
-  técnico de por qué hace falta un mini servidor HTTP local.
-  **Caso conocido:** algunos tracks de sellos grandes (ej. "Disco Cherry" de
-  Purple Disco Machine, sello Sweat It Out/Sony) tienen TODOS sus candidatos
-  de YouTube con embed deshabilitado por Content ID — restricción real del
-  dueño, no un bug. **Resuelto (sesión 2026-06-19) con fallback a Spotify**:
-  `spotify_preview.py` (búsqueda vía Client Credentials, credenciales en
+- Preview de YouTube y Spotify: **hecho** (sesión 2026-06-19) — tab de Charts
+  en la GUI (`gui/charts_widget.py`) con dos botones independientes ("▶
+  YouTube", "♪ Spotify") arriba del reproductor embebido; el DJ elige cuál
+  usar para cada track, **no hay fallback automático entre servicios** (se
+  probó así primero y Brian pidió explícitamente que fuera elección manual,
+  no algo automático). `youtube_preview.py` busca sin API key vía yt-dlp,
+  prioriza Extended Mix con fallback a versión corta, y dentro del propio
+  YouTube cicla entre varios candidatos si uno no permite embeberse
+  (restricción del dueño por Content ID) — eso sí es automático, porque es
+  "seguir buscando dentro de la opción YouTube", no cruzar a otro servicio.
+  `spotify_preview.py` busca vía Client Credentials (credenciales en
   `asistente_config.json` con `python cli.py config --spotify-client-id ID
-  --spotify-client-secret SECRET`, gratis en developer.spotify.com/dashboard).
-  La búsqueda en Spotify corre en paralelo a la de YouTube (sin agregar
-  espera); si TODOS los candidatos de YouTube fallan al embeber (el handler
-  `onError` del IFrame API los agota uno por uno), la página cae sola al
-  embed de Spotify. Trade-off conocido y aceptado: sin login del usuario,
-  Spotify solo reproduce 30s de preview, no el track completo. La etiqueta
-  de estado en la GUI detecta este fallback (chequea con `runJavaScript` si
-  apareció un iframe de Spotify) y avisa "(Spotify, 30s — YouTube
-  restringido)" en vez de mostrar el dato de YouTube como si hubiera sonado.
+  --spotify-client-secret SECRET`, gratis en developer.spotify.com/dashboard);
+  el embed de Spotify es más permisivo que YouTube pero sin login del
+  usuario solo reproduce 30s de preview, no el track completo. Ver
+  `gui/local_preview_server.py` para el detalle técnico de por qué hace
+  falta un mini servidor HTTP local para que YouTube acepte el embed.
+  **Caso de uso real validado:** "Disco Cherry" de Purple Disco Machine
+  (sello Sweat It Out/Sony) tiene TODOS sus candidatos de YouTube con embed
+  deshabilitado por Content ID — ahí el botón de Spotify es la única opción
+  con preview, y funciona bien.
 
 **Hecho, pendiente de conectar a la GUI** (el motor ya funciona por CLI):
 - **Importador de Serato** — parser binario (`serato_db.py`) y comando
