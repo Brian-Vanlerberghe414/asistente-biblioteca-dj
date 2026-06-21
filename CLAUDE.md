@@ -298,36 +298,69 @@ Confiable, PENDIENTE de diseñar a fondo, decidido en sesión 2026-06-19):**
 - **Beatport API**: pedir credenciales OAuth (uso no comercial) para género/
   subgénero oficial (hoy solo está GetSongBPM, de cobertura pobre).
 
-**Módulo 3 — Biblioteca en la nube + multiplataforma (PENDIENTE de diseñar,
-pedido por Brian en sesión 2026-06-19, sin arrancar):**
-- **Subir la biblioteca musical (los archivos de audio en sí, no solo
-  metadata) a almacenamiento en la nube.** Hoy la Biblioteca Confiable
-  (Supabase) guarda solo metadata (género/BPM/key/artista); esto es
-  guardar los tracks reales.
-- **Falta decidir el proveedor de almacenamiento** — el pedido explícito es
-  que sea económico y eficaz para este proyecto. Candidatos a evaluar más
-  adelante (ninguno descartado ni elegido todavía): Cloudflare R2 (sin costo
-  de egress, atractivo para streaming), Backblaze B2, AWS S3, Google Cloud
-  Storage, Wasabi, o el storage propio de Supabase (posible sinergia con la
-  Biblioteca Confiable que ya está ahí). Definir esto es el primer paso
-  cuando se retome este módulo.
-- **Apps cliente para Web, Android e iOS** — para poder ver, escuchar y
-  descargar los tracks de la biblioteca desde cualquier lugar, de forma
-  ordenada. Esto implica (a definir cuando se diseñe a fondo):
-  - Una capa de API/backend real — hoy todo es Python local + llamadas
-    directas a Supabase desde la app de escritorio; clientes web/mobile
-    necesitan un servicio intermedio (auth, streaming de audio, etc.), no
-    pegarle directo a Supabase con la misma clave que usa la app de escritorio.
-  - Streaming/descarga de audio (range requests o similar) desde donde sea
-    que viva el storage elegido.
-  - Stack todavía sin decidir para web/Android/iOS (no asumir React/Flutter/
-    nativo hasta que se hable explícitamente con Brian).
-  - Cómo se sincroniza esto con la biblioteca local de cada DJ en su PC
-    (¿la nube es la fuente de verdad, o un espejo/backup de la local?).
+**Módulo 3 — Biblioteca en la nube + multiplataforma (pedido por Brian en
+sesión 2026-06-19; Fase 1 hecha en sesión 2026-06-21, resto sin arrancar):**
+
+- **Fase 1 — Backend + Auth + RLS multi-usuario: HECHA y deployada.**
+  Decisiones: Auth = Supabase Auth, Backend = Python + FastAPI, Hosting =
+  Render. Cambios:
+  - `asistente_dj/supabase_setup_perfiles.sql` — tabla `perfiles` (uno por
+    DJ autenticado) + trigger que la crea sola al registrarse.
+  - `asistente_dj/supabase_setup_rls_v2.sql` — `biblioteca_tracks` y
+    `artistas_generos` pasan de "anon escribe todo" a "lectura abierta,
+    escritura solo `authenticated`"; se agregó columna `creado_por` a
+    `biblioteca_tracks` para saber qué usuario hizo cada corrección manual.
+  - Cuenta de servicio en Supabase Auth (credenciales en
+    `asistente_config.json` como `supabase_service_email`/
+    `supabase_service_password`, NUNCA en texto plano en ningún log/print)
+    para que `biblioteca_confiable.py` (la app de escritorio y las rutinas
+    de charts en la nube) puedan seguir escribiendo tras el RLS nuevo —
+    `_get_cliente()` hace `sign_in_with_password` antes de devolver el
+    cliente si hay cuenta de servicio configurada. Las 2 rutinas
+    programadas de charts ya tienen estas credenciales en su prompt.
+  - **Backend nuevo en `backend/`** (FastAPI, deployado en
+    https://asistente-biblioteca-dj.onrender.com): `main.py`, `auth.py`
+    (verifica el JWT de Supabase Auth contra su JWKS público — las claves
+    nuevas de Supabase firman con ES256/asimétrico, no hace falta ningún
+    secreto compartido), `supabase_client.py` (arma un cliente de Supabase
+    *por request*, actuando como el usuario del JWT, para que el RLS de
+    Postgres haga el trabajo de permisos solo), `routes/` (`biblioteca.py`,
+    `artistas.py`, `charts.py`, `me.py`). Los clientes futuros (Android,
+    web) inician sesión directo contra Supabase Auth con la clave anon (eso
+    sí es seguro) y mandan ese JWT a esta API en cada request — nunca
+    hablan directo con Supabase con una clave compartida.
+  - **Gotcha de Supabase repetido dos veces en esta fase**: correr un SQL
+    de `GRANT`/`ALTER TABLE ... ADD COLUMN` sin error visible en el SQL
+    Editor NO garantiza que se haya aplicado — pasó con los permisos de
+    `authenticated` en `biblioteca_tracks`/`charts_tracks` y con la columna
+    `creado_por`. Verificar siempre con
+    `SELECT grantee, privilege_type FROM information_schema.role_table_grants
+    WHERE table_name='X'` (para permisos) o
+    `SELECT column_name FROM information_schema.columns WHERE table_name='X'`
+    (para columnas) después de cualquier cambio, y si falta algo, re-correr
+    el `GRANT`/`ALTER` suelto + `NOTIFY pgrst, 'reload schema';`.
+  - **Gotcha de Render**: el campo "Start Command" no quedó guardado en el
+    primer intento (corrió el placeholder genérico `gunicorn
+    your_application.wsgi` en vez de `uvicorn main:app --host 0.0.0.0
+    --port $PORT`) — hay que entrar a Settings del servicio y confirmar que
+    quedó el comando real, no el de ejemplo.
+
+- **Fase 2 (sin arrancar) — Storage de audio real.** Subir los archivos de
+  audio en sí (hoy la Biblioteca Confiable solo guarda metadata). Falta
+  decidir el proveedor — candidatos sin elegir: Cloudflare R2 (sin costo de
+  egress, atractivo para streaming), Backblaze B2, AWS S3, Google Cloud
+  Storage, Wasabi, o el storage propio de Supabase.
+
+- **Fase 3 (sin arrancar) — Apps cliente.** Android primero (prioridad
+  elegida por Brian), después web/iOS. Ya van a poder pegarle al backend de
+  `backend/` en vez de hablar directo con Supabase. Falta decidir el stack
+  (no asumir nativo/Flutter/React Native hasta hablarlo con Brian) y cómo
+  se sincroniza con la biblioteca local de cada DJ en su PC.
+
 - Relacionado con [[project-punch-list-calidad]] y el plan de "Feedback DJ"
-  ([[project-feedback-dj-beta]]): cuantos más usuarios/dispositivos toquen la
-  Biblioteca Confiable y el storage compartido, más urgente se vuelve cerrar
-  el modelo de confianza multi-usuario antes de escalar esto.
+  ([[project-feedback-dj-beta]]): la Fase 1 ya resuelve el problema más
+  urgente (escritura sin control de ningún usuario con la clave anon), pero
+  el pipeline de moderación de Feedback DJ en sí sigue sin diseñar.
 
 **Hecho** (ya no es roadmap, pero quedaba listado como pendiente antes):
 interfaz gráfica PySide6 (`app.py` + `gui/`, con reproductor + cola + shuffle
