@@ -97,6 +97,9 @@ python app.py
 - `rekordbox_export.py` — escribe XML de Rekordbox con playlists.
 - `getsongbpm.py` — cliente de la API pública GetSongBPM.
 - `serato_db.py` — parser binario de la base de datos de Serato (database V2).
+- `cloud_backup.py` — Módulo 3 Fase 2: backup de audio personal a Cloudflare
+  R2 vía el backend (`backend/`); usa la cuenta personal del DJ
+  (`mi_email`/`mi_password`), no la cuenta de servicio.
 - `biblioteca_confiable.py` — cliente de Supabase ("Biblioteca Confiable"); fuente
   prioritaria de género (ver Decisiones de diseño). Opcional y a prueba de fallos:
   si no hay credenciales o falla la red, no rompe nada y el flujo sigue por tags.
@@ -345,11 +348,41 @@ sesión 2026-06-19; Fase 1 hecha en sesión 2026-06-21, resto sin arrancar):**
     --port $PORT`) — hay que entrar a Settings del servicio y confirmar que
     quedó el comando real, no el de ejemplo.
 
-- **Fase 2 (sin arrancar) — Storage de audio real.** Subir los archivos de
-  audio en sí (hoy la Biblioteca Confiable solo guarda metadata). Falta
-  decidir el proveedor — candidatos sin elegir: Cloudflare R2 (sin costo de
-  egress, atractivo para streaming), Backblaze B2, AWS S3, Google Cloud
-  Storage, Wasabi, o el storage propio de Supabase.
+- **Fase 2 — Storage de audio real: HECHA (sesión 2026-06-21).** Proveedor
+  elegido: **Cloudflare R2** (sin costo de egress — con muchos usuarios
+  escuchando/descargando, eso es lo que de verdad importa; S3/GCS cobran
+  $0.09–0.12/GB de egress y se vuelven inviables a esa escala). Cambios:
+  - **Cuenta personal de Brian en Supabase Auth** (su email real, separada
+    de la cuenta de servicio del scraper) — los archivos de audio son
+    privados por usuario, no van a la Biblioteca Confiable compartida.
+  - `asistente_dj/supabase_setup_audio_personal.sql` — tabla
+    `audio_personal` (usuario_id, r2_key, titulo, artista, tamano_bytes,
+    ruta_local), RLS `FOR ALL TO authenticated USING (auth.uid() =
+    usuario_id)` — a diferencia de `biblioteca_tracks`, ni la lectura es
+    abierta acá.
+  - **Backend**: `backend/storage.py` (cliente `boto3` S3-compatible
+    apuntando al endpoint de R2) + `backend/routes/audio.py`
+    (`POST /audio/upload-url`, `GET /audio/mios`,
+    `GET /audio/{r2_key}/download-url`) — el archivo nunca pasa por el
+    backend, sube/baja *directo* a R2 con URLs firmadas.
+  - **GUI**: botón **"☁ Backup en la nube"** en la toolbar principal
+    (`gui/main_window.py:_on_backup_nube`), con `BackupNubeWorker`
+    (`gui/workers.py`) y la lógica de subida en `asistente_dj/cloud_backup.py`
+    (usa la cuenta personal de Brian, pide URL firmada al backend, hace el
+    PUT directo a R2). Opera sobre los tracks marcados con "Seleccionar"
+    (mismo mecanismo que "Eliminar"/"Playlist").
+  - Validado end-to-end (local y en producción): subido un track real de la
+    biblioteca de Brian, descargado de vuelta, hash SHA-256 idéntico —
+    sin corrupción.
+  - **Costo estimado** (sesión 2026-06-21, ver detalle en el chat): solo
+    Brian con 50GB ≈ $0.60/mes; a 1000 usuarios con 100TB en total ≈
+    $1.500–1.650/mes (~$1,60/usuario/mes), dominado casi enteramente por el
+    storage — el egress es $0 siempre con R2.
+  - **Pendiente, fuera de esta etapa**: Brian todavía no subió su
+    biblioteca completa (~2000 tracks, 50GB) — lo decide él manualmente
+    cuando quiera, track por track o seleccionando todo, con el mismo botón
+    ya construido. No hay pantalla de login multi-usuario (si en el futuro
+    hace falta soportar más DJs en la misma PC, hay que construirla).
 
 - **Fase 3 (sin arrancar) — Apps cliente.** Android primero (prioridad
   elegida por Brian), después web/iOS. Ya van a poder pegarle al backend de
