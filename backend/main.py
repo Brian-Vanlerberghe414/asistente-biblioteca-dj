@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from routes import artistas, biblioteca, charts, me
+from routes import artistas, audio, biblioteca, charts, me
 
 app = FastAPI(title="Asistente Biblioteca DJ — API")
 
@@ -22,6 +22,7 @@ app.include_router(me.router)
 app.include_router(biblioteca.router)
 app.include_router(artistas.router)
 app.include_router(charts.router)
+app.include_router(audio.router)
 
 
 @app.get("/health")
