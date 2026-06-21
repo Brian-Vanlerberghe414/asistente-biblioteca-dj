@@ -194,6 +194,54 @@ class SpotifySearchWorker(QThread):
         self.terminado.emit(resultado)
 
 
+class BackupNubeWorker(QThread):
+    """Sube tracks seleccionados al backup personal en la nube (Cloudflare
+    R2, vía el backend) — Fase 2 del Módulo 3. Usa la cuenta PERSONAL del DJ
+    (`cloud_backup._obtener_jwt`), nunca la cuenta de servicio."""
+    progreso = Signal(str)
+    terminado = Signal(dict)
+
+    def __init__(self, db_path: str, ids: list[int]):
+        super().__init__()
+        self.db_path = db_path
+        self.ids = ids
+
+    def run(self):
+        proj = os.path.join(os.path.dirname(__file__), "..")
+        if proj not in sys.path:
+            sys.path.insert(0, proj)
+        import db as db_mod
+        import cloud_backup
+
+        jwt = cloud_backup._obtener_jwt()
+        if not jwt:
+            self.terminado.emit({"error": "No se pudo iniciar sesión con tu cuenta personal."})
+            return
+
+        conn = db_mod.connect(self.db_path)
+        subidos = fallidos = 0
+        total = len(self.ids)
+        for i, tid in enumerate(self.ids, start=1):
+            row = conn.execute(
+                "SELECT ruta_origen, artista, titulo FROM tracks WHERE id=?", (tid,)
+            ).fetchone()
+            if not row:
+                fallidos += 1
+                continue
+            etiqueta = f"{row['artista'] or '—'} - {row['titulo'] or '—'}"
+            self.progreso.emit(f"☁ Subiendo {i}/{total}: {etiqueta}…")
+            ok, msg = cloud_backup.subir_track(
+                jwt, row["ruta_origen"], row["titulo"] or "", row["artista"] or ""
+            )
+            if ok:
+                subidos += 1
+            else:
+                fallidos += 1
+                self.progreso.emit(f"  ⚠ {etiqueta}: {msg}")
+        conn.close()
+        self.terminado.emit({"subidos": subidos, "fallidos": fallidos})
+
+
 class ArtistasWorker(QThread):
     """Enriquece la BD de artistas consultando Last.fm y Beatport."""
     progreso = Signal(str)

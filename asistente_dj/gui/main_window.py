@@ -23,7 +23,9 @@ def _asset(name: str) -> str:
 from gui.artistas_widget import ArtistasWidget
 from gui.charts_widget import ChartsWidget
 from gui.organizador import OrganizadorWidget
-from gui.workers import AnalyzeWorker, ArchiveWorker, DjImportWorker, ScanWorker
+from gui.workers import (
+    AnalyzeWorker, ArchiveWorker, BackupNubeWorker, DjImportWorker, ScanWorker,
+)
 
 
 class MainWindow(QMainWindow):
@@ -45,6 +47,7 @@ class MainWindow(QMainWindow):
         tb.addAction("➕ Playlist", self._on_crear_playlist)
         tb.addSeparator()
         tb.addAction("🌐 BD Online", self._on_bd_online)
+        tb.addAction("☁ Backup en la nube", self._on_backup_nube)
         tb.addAction("⚙ Configurar", self._on_configurar)
 
         # Tabs
@@ -429,6 +432,43 @@ class MainWindow(QMainWindow):
             self, "Playlist creada",
             f"Playlist «{nombre}» creada con {len(ids)} tracks."
         )
+
+    def _on_backup_nube(self):
+        """Sube tracks seleccionados al backup personal en la nube
+        (Cloudflare R2) — Fase 2 del Módulo 3. Usa la cuenta PERSONAL del
+        DJ, separada de la cuenta de servicio del scraper de charts."""
+        from PySide6.QtWidgets import QInputDialog
+        import cloud_backup
+
+        if not cloud_backup.esta_configurado():
+            email, ok = QInputDialog.getText(
+                self, "Backup en la nube",
+                "Todavía no tenés una cuenta personal configurada.\n"
+                "Ingresá tu email para crearla:"
+            )
+            if not ok or not email.strip():
+                return
+            password, ok = QInputDialog.getText(
+                self, "Backup en la nube", "Elegí una contraseña:",
+                QLineEdit.Password
+            )
+            if not ok or not password.strip():
+                return
+            creada, msg = cloud_backup.crear_cuenta(email.strip(), password.strip())
+            QMessageBox.information(self, "Backup en la nube", msg)
+            if not creada:
+                return
+
+        ids = self._org.ids_seleccionados()
+        if not ids:
+            QMessageBox.information(
+                self, "Backup en la nube",
+                "Activá el botón 'Seleccionar' (junto a los filtros de BPM/Key) "
+                "y marcá los tracks que querés subir."
+            )
+            return
+
+        self._lanzar(BackupNubeWorker(self._db_path, ids))
 
     def _on_bd_online(self):
         """Consulta tracks_canonical para los tracks visibles y muestra sugerencias."""
