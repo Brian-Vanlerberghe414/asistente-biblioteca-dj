@@ -1,0 +1,7 @@
+# Backend del Asistente de Biblioteca DJ — Fase 1 del Módulo 3
+# (clientes web/Android/iOS le pegan a esta API, no directo a Supabase).
+fastapi>=0.115
+uvicorn[standard]>=0.32
+supabase>=2.3
+pyjwt[crypto]>=2.9
+pydantic>=2.9
