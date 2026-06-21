@@ -459,13 +459,12 @@ class MainWindow(QMainWindow):
             if not creada:
                 return
 
-        ids = self._org.ids_seleccionados()
+        from gui.backup_dialog import BackupDialog
+        dialogo = BackupDialog(self._db_path, self)
+        if dialogo.exec() != QDialog.Accepted:
+            return
+        ids = dialogo.ids_seleccionados()
         if not ids:
-            QMessageBox.information(
-                self, "Backup en la nube",
-                "Activá el botón 'Seleccionar' (junto a los filtros de BPM/Key) "
-                "y marcá los tracks que querés subir."
-            )
             return
 
         self._lanzar(BackupNubeWorker(self._db_path, ids))
