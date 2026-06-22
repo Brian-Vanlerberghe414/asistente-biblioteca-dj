@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction("🌐 BD Online", self._on_bd_online)
         tb.addAction("☁ Backup en la nube", self._on_backup_nube)
+        tb.addAction("🔄 Sincronizar", self._on_sincronizar)
         tb.addAction("⚙ Configurar", self._on_configurar)
 
         # Tabs
@@ -425,6 +426,14 @@ class MainWindow(QMainWindow):
             (nombre, json.dumps({"ids": ids}))
         )
         conn.commit()
+
+        # Base para que esta playlist se vea desde otros dispositivos
+        # (Fase 3 — apps cliente): se sube a mis_playlists en la nube si
+        # el DJ tiene su cuenta personal configurada.
+        import cloud_backup
+        if cloud_backup.esta_configurado():
+            import cloud_sync
+            cloud_sync.push_playlist(nombre, ids, conn)
         conn.close()
 
         self._org.recargar_playlists()
@@ -468,6 +477,33 @@ class MainWindow(QMainWindow):
             return
 
         self._lanzar(BackupNubeWorker(self._db_path, ids))
+
+    def _on_sincronizar(self):
+        """Trae cambios de género/playlists hechos desde otro dispositivo
+        (ej. Android, más adelante) y los aplica localmente. Base de la
+        Fase 3 — apps cliente, gana el cambio más reciente."""
+        import cloud_backup
+        if not cloud_backup.esta_configurado():
+            QMessageBox.information(
+                self, "Sincronizar",
+                "Todavía no tenés una cuenta personal configurada. "
+                "Usá primero 'Backup en la nube' para crearla."
+            )
+            return
+
+        import cloud_sync
+        import db as db_mod
+        conn = db_mod.connect(self._db_path)
+        n_tracks = cloud_sync.pull_biblioteca(conn)
+        n_playlists = cloud_sync.pull_playlists(conn)
+        conn.close()
+
+        if n_tracks or n_playlists:
+            self._org.recargar()
+            self._org.recargar_playlists()
+        self.statusBar().showMessage(
+            f"Sincronizado: {n_tracks} track(s), {n_playlists} playlist(s) actualizadas."
+        )
 
     def _on_bd_online(self):
         """Consulta tracks_canonical para los tracks visibles y muestra sugerencias."""

@@ -109,6 +109,9 @@ _NEW_COLS = {
     "waveform_data": "TEXT",
     # estado de sincronización con la BD compartida en la nube
     "cloud_status": "TEXT",   # NULL | 'pendiente' | 'enviado'
+    # última edición manual (genero/subgenero/etc.) — para sincronización
+    # de biblioteca personal multi-dispositivo ("gana el más reciente")
+    "actualizado_en": "TEXT",
 }
 
 

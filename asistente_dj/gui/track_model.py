@@ -133,31 +133,42 @@ class TrackModel(QAbstractTableModel):
     # ------------------------------------------------------- guardar / cancelar
     def guardar_ids(self, ids: list[int]):
         import db as db_mod
+        from datetime import datetime, timezone
         conn = db_mod.connect(self._db_path)
+        ahora = datetime.now(timezone.utc).isoformat()
         ids_guardados = []
         for track_id in ids:
             if track_id not in self._pendientes:
                 continue
             nuevo = self._pendientes.pop(track_id)["nuevo"]
             sets = ", ".join(f"{k}=?" for k in nuevo)
-            vals = list(nuevo.values()) + [track_id]
+            vals = list(nuevo.values()) + [ahora, track_id]
             conn.execute(
-                f"UPDATE tracks SET {sets}, confianza='manual' WHERE id=?", vals
+                f"UPDATE tracks SET {sets}, confianza='manual', actualizado_en=? WHERE id=?",
+                vals
             )
             ids_guardados.append(track_id)
         conn.commit()
 
         # Una corrección manual es la verdad final: se sube a la Biblioteca
         # Confiable con fuente="manual", que queda protegida ahí (ningún
-        # scrape de charts ni otro DJ la va a pisar después).
+        # scrape de charts ni otro DJ la va a pisar después). También se
+        # sube a la biblioteca PERSONAL en la nube (mi_biblioteca), base
+        # para que el mismo cambio se vea desde otros dispositivos.
         import biblioteca_confiable
-        if ids_guardados and biblioteca_confiable.esta_configurado():
+        import cloud_sync
+        subir_compartido = biblioteca_confiable.esta_configurado()
+        subir_personal = __import__("cloud_backup").esta_configurado()
+        if ids_guardados and (subir_compartido or subir_personal):
             for track_id in ids_guardados:
                 row = conn.execute(
                     "SELECT artista, titulo, duracion_seg, genero, subgenero, "
-                    "sello, bpm, camelot FROM tracks WHERE id=?", (track_id,)
+                    "sello, bpm, camelot, actualizado_en FROM tracks WHERE id=?",
+                    (track_id,)
                 ).fetchone()
-                if row and row["artista"] and row["titulo"]:
+                if not row or not row["artista"] or not row["titulo"]:
+                    continue
+                if subir_compartido:
                     biblioteca_confiable.agregar(
                         artista=row["artista"], titulo=row["titulo"],
                         duracion_seg=row["duracion_seg"] or 0,
@@ -165,6 +176,8 @@ class TrackModel(QAbstractTableModel):
                         sello=row["sello"], bpm=row["bpm"], camelot=row["camelot"],
                         fuente="manual",
                     )
+                if subir_personal:
+                    cloud_sync.push_track(dict(row))
 
         conn.close()
         self.beginResetModel()
