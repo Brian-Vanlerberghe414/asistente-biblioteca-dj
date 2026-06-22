@@ -649,6 +649,7 @@ class OrganizadorWidget(QWidget):
         self._tree.setMinimumWidth(160)
         self._tree.setMaximumWidth(260)
         self._tree.currentItemChanged.connect(self._on_tree_click)
+        self._tree.itemExpanded.connect(self._on_genero_expandido)
 
         splitter.addWidget(self._tree)
 
@@ -854,7 +855,8 @@ class OrganizadorWidget(QWidget):
                 continue
             item_g = QTreeWidgetItem(root, [f"● {genero}  ({total_g})"])
             item_g.setData(0, Qt.UserRole, (genero, None))
-            item_g.setExpanded(True)
+            # Acordeón: solo el género activo queda desplegado.
+            item_g.setExpanded(genero == self._filtro_genero)
             g_color = QColor(GENRE_COLORS.get(genero, "#9A9CA1"))
             item_g.setForeground(0, g_color)
             font_g = item_g.font(0)
@@ -888,8 +890,21 @@ class OrganizadorWidget(QWidget):
             conn = db_mod.connect(self._db_path)
             self._model.recargar(conn, self._filtro_genero, self._filtro_subgenero)
             conn.close()
+            # Clickear un género lo despliega (el acordeón cierra los demás).
+            if dato[0] != "_Por revisar":
+                current.setExpanded(True)
         self._actualizar_contador()
         self._on_filtro_cambiado()
+
+    def _on_genero_expandido(self, item):
+        """Acordeón: al desplegar un género, compacta sus hermanos."""
+        padre = item.parent()
+        if padre is None:
+            return
+        for i in range(padre.childCount()):
+            hermano = padre.child(i)
+            if hermano is not item and hermano.isExpanded():
+                hermano.setExpanded(False)
 
     def _actualizar_contador(self):
         n = self._proxy.rowCount()
