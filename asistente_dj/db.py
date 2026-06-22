@@ -112,6 +112,10 @@ _NEW_COLS = {
     # última edición manual (genero/subgenero/etc.) — para sincronización
     # de biblioteca personal multi-dispositivo ("gana el más reciente")
     "actualizado_en": "TEXT",
+    # carátula (cover art): URL al CDN de Apple, nunca se guarda la imagen.
+    # Se llena desde la Biblioteca Confiable en el scan, y para lo que no
+    # está ahí, CoverFillWorker la busca en background (ver gui/workers.py).
+    "cover_url": "TEXT",
 }
 
 

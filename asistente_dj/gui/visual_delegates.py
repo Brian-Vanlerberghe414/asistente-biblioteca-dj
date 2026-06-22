@@ -7,6 +7,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
 
+from gui.cover_loader import obtener as _cover_loader
 from gui.theme import ENERGY_COLORS, CAMELOT_COLORS, CYAN, ORANGE, GREEN, AMBER
 from gui.track_model import ROLE_REPRODUCIENDO
 
@@ -89,6 +90,39 @@ class EnergyDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         return QSize(self.BAR_W + 32, 30)
+
+
+class CoverDelegate(QStyledItemDelegate):
+    """Miniatura cuadrada de la carátula (descarga async + caché compartida
+    en gui/cover_loader.py). Mientras no haya imagen todavía (sin URL, o
+    descargándose), no pinta nada — aparece sola cuando se completa."""
+
+    SIZE = 24
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
+        painter.save()
+
+        bg = _sel_bg(option)
+        if bg:
+            painter.fillRect(option.rect, bg)
+
+        url = (index.data(Qt.DisplayRole) or "").strip()
+        if url:
+            pix = _cover_loader().pixmap(url)
+            if pix and not pix.isNull():
+                rect = option.rect
+                lado = min(self.SIZE, rect.height() - 4)
+                escalado = pix.scaled(
+                    lado, lado, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+                x = rect.left() + (rect.width() - escalado.width()) // 2
+                y = rect.center().y() - escalado.height() // 2
+                painter.drawPixmap(x, y, escalado)
+
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        return QSize(34, 30)
 
 
 class CamelotDelegate(QStyledItemDelegate):

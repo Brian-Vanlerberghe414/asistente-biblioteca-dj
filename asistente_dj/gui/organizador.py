@@ -120,12 +120,14 @@ from gui.delegate_artista import ArtistaDelegate
 from gui.detalle_panel import DetallePanelWidget
 from gui.genero_delegate import GeneroDelegate
 from gui.track_model import (
-    TrackModel, COL_CHECK, COL_BPM, COL_CAMELOT, COL_ENERGIA, COL_ESTADO,
-    COL_GENERO, COL_SUBGENERO,
+    TrackModel, COL_CHECK, COL_ARTISTA, COL_BPM, COL_CAMELOT, COL_CARATULA,
+    COL_ENERGIA, COL_ESTADO, COL_GENERO, COL_SUBGENERO, COL_TITULO,
 )
 from gui.visual_delegates import (
-    BpmDelegate, CamelotDelegate, EnergyDelegate, StatusDelegate, PlayButtonDelegate,
+    BpmDelegate, CamelotDelegate, CoverDelegate, EnergyDelegate, StatusDelegate,
+    PlayButtonDelegate,
 )
+from gui.cover_loader import obtener as _cover_loader
 from gui.waveform_widget import WaveformWidget
 from gui.theme import GENRE_COLORS
 
@@ -775,15 +777,19 @@ class OrganizadorWidget(QWidget):
         self._tabla.doubleClicked.connect(self._on_double_click)
         self._tabla.clicked.connect(self._on_click)
         # Delegates de edición
-        self._tabla.setItemDelegateForColumn(1, ArtistaDelegate(self._db_path, self._tabla))
+        self._tabla.setItemDelegateForColumn(COL_ARTISTA, ArtistaDelegate(self._db_path, self._tabla))
         self._tabla.setItemDelegateForColumn(COL_BPM, BpmEditDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_GENERO, GeneroDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_SUBGENERO, GeneroDelegate(self._tabla))
         # Delegates de visualización
+        self._tabla.setItemDelegateForColumn(COL_CARATULA, CoverDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_BPM,     BpmDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_CAMELOT, CamelotDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_ENERGIA, EnergyDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_ESTADO,  StatusDelegate(self._tabla))
+        # Repintar la grilla cuando una carátula termina de descargarse
+        # (la celda ya tiene la URL desde antes; solo falta la imagen).
+        _cover_loader().cargada.connect(lambda _u: self._tabla.viewport().update())
         # Columna 0: modo dual Play / Selección (checkbox)
         self._delegate_play = PlayButtonDelegate(self._tabla)
         self._delegate_play.play_requested.connect(self._on_play_clicked)
@@ -929,22 +935,23 @@ class OrganizadorWidget(QWidget):
         t   = self._tabla
 
         # Anchos de columnas visibles
-        hdr.resizeSection(0,  28)    # Play / Selección
-        hdr.resizeSection(1,  175)   # Artista
-        hdr.resizeSection(2,  200)   # Título
-        hdr.resizeSection(3,  120)   # Sello
-        hdr.resizeSection(4,   58)   # BPM
-        hdr.resizeSection(6,   72)   # Camelot
-        hdr.resizeSection(7,   96)   # Energía
+        hdr.resizeSection(0,   28)   # Play / Selección
+        hdr.resizeSection(COL_CARATULA, 34)   # Carátula
+        hdr.resizeSection(2,  175)   # Artista
+        hdr.resizeSection(3,  200)   # Título
+        hdr.resizeSection(4,  120)   # Sello
+        hdr.resizeSection(5,   58)   # BPM
+        hdr.resizeSection(7,   72)   # Camelot
+        hdr.resizeSection(8,   96)   # Energía
         hdr.resizeSection(COL_GENERO,    110)   # Género
         hdr.resizeSection(COL_SUBGENERO, 140)   # Subgénero
-        hdr.resizeSection(10,  52)   # Formato
-        hdr.resizeSection(12,  46)   # Año
-        hdr.resizeSection(13, 100)   # Estado
+        hdr.resizeSection(11,  52)   # Formato
+        hdr.resizeSection(13,  46)   # Año
+        hdr.resizeSection(14, 100)   # Estado
 
         # Ocultar columnas no mostradas en la vista principal
-        t.setColumnHidden(5,  True)  # Key (raw)
-        t.setColumnHidden(11, True)  # kbps
+        t.setColumnHidden(6,  True)  # Key (raw)
+        t.setColumnHidden(12, True)  # kbps
 
     def _on_click(self, proxy_index):
         """Single click: actualiza el panel de detalle; en Género/Subgénero
@@ -1097,8 +1104,7 @@ class OrganizadorWidget(QWidget):
     def _on_double_click(self, proxy_index):
         """Double-click: abre el editor inline en columnas editables.
         Género/Subgénero ya se abren con un solo click (ver _on_click)."""
-        # Columnas editables: Artista=1, Título=2, BPM=4
-        if proxy_index.column() in (1, 2, 4):
+        if proxy_index.column() in (COL_ARTISTA, COL_TITULO, COL_BPM):
             self._tabla.edit(proxy_index)
 
 # -------------------------------------------------- acciones batch públicas

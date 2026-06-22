@@ -25,7 +25,8 @@ from gui.charts_widget import ChartsWidget
 from gui.organizador import OrganizadorWidget
 from gui.playlists_widget import PlaylistsWidget
 from gui.workers import (
-    AnalyzeWorker, ArchiveWorker, BackupNubeWorker, DjImportWorker, ScanWorker,
+    AnalyzeWorker, ArchiveWorker, BackupNubeWorker, CoverFillWorker,
+    DjImportWorker, ScanWorker,
 )
 
 
@@ -168,6 +169,36 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Listo — {resultado} tracks analizados")
         else:
             self.statusBar().showMessage("Listo")
+
+        # Tras analizar (siempre sigue a un escaneo) buscar en background las
+        # carátulas que falten — no pasa por _lanzar: no bloquea la toolbar,
+        # corre aparte mientras el DJ sigue trabajando.
+        if isinstance(self._worker, AnalyzeWorker):
+            self._iniciar_cover_fill()
+
+    def _iniciar_cover_fill(self):
+        if getattr(self, "_cover_worker", None) is not None and self._cover_worker.isRunning():
+            return
+        self._cover_worker = CoverFillWorker(self._db_path)
+        self._cover_worker.encontrada.connect(self._on_cover_encontrada)
+        self._cover_worker.progreso_n.connect(self._on_cover_progreso)
+        self._cover_worker.terminado.connect(self._on_cover_terminado)
+        self._cover_worker.start()
+
+    def _on_cover_encontrada(self, track_id: int, url: str):
+        self._org._model.actualizar_cover(track_id, url)
+        self._playlists._model.actualizar_cover(track_id, url)
+
+    def _on_cover_progreso(self, hechos: int, total: int):
+        if total:
+            self.statusBar().showMessage(f"🖼 Buscando carátulas… {hechos}/{total}")
+
+    def _on_cover_terminado(self, resultado: dict):
+        if resultado.get("total"):
+            self.statusBar().showMessage(
+                f"🖼 Carátulas: {resultado['desde_nube'] + resultado['desde_itunes']} "
+                f"encontradas, {resultado['sin_encontrar']} sin encontrar"
+            )
 
     def _set_toolbar(self, enabled: bool):
         for tb in self.findChildren(QToolBar):

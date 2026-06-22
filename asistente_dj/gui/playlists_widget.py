@@ -22,11 +22,15 @@ if _PROJ not in sys.path:
     sys.path.insert(0, _PROJ)
 
 import db as db_mod
+from gui.cover_loader import obtener as _cover_loader
 from gui.track_model import (
-    COL_BPM, COL_CAMELOT, COL_CHECK, COL_ENERGIA, COL_ESTADO, TrackModel,
+    COL_BPM, COL_CAMELOT, COL_CARATULA, COL_CHECK, COL_ENERGIA, COL_ESTADO,
+    TrackModel,
 )
 from gui.track_table_view import TrackTableView
-from gui.visual_delegates import BpmDelegate, CamelotDelegate, EnergyDelegate, StatusDelegate
+from gui.visual_delegates import (
+    BpmDelegate, CamelotDelegate, CoverDelegate, EnergyDelegate, StatusDelegate,
+)
 
 
 class PlaylistsWidget(QWidget):
@@ -76,10 +80,12 @@ class PlaylistsWidget(QWidget):
         self._tabla.verticalHeader().setDefaultSectionSize(30)
         self._tabla.verticalHeader().hide()
         self._tabla.setColumnHidden(COL_CHECK, True)
+        self._tabla.setItemDelegateForColumn(COL_CARATULA, CoverDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_BPM, BpmDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_CAMELOT, CamelotDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_ENERGIA, EnergyDelegate(self._tabla))
         self._tabla.setItemDelegateForColumn(COL_ESTADO, StatusDelegate(self._tabla))
+        _cover_loader().cargada.connect(lambda _u: self._tabla.viewport().update())
         derecha.addWidget(self._tabla, stretch=1)
 
         lay.addLayout(derecha, stretch=1)

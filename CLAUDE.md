@@ -200,6 +200,27 @@ python app.py
   encontrada en cada upsert de género/BPM, que es un flujo separado).
   Validado contra la Biblioteca Confiable real (2.310 tracks): 5/5 carátulas
   encontradas en la primera corrida de prueba.
+- **Carátulas en vivo durante el escaneo (sesión 2026-06-22)**: columna local
+  `cover_url` en `tracks` (migración suave en `db.py`). `scanner.scan()`
+  trae `cover_url` de la Biblioteca Confiable en el mismo lookup que ya
+  hacía para género (paso 2.5) — si no está ahí, queda `NULL` y lo resuelve
+  `CoverFillWorker` (`gui/workers.py`): corre automático en background
+  apenas termina el análisis que sigue a un escaneo (no pasa por
+  `MainWindow._lanzar`, así no bloquea la toolbar mientras busca). Por cada
+  track sin `cover_url`: primero pregunta a la Biblioteca Confiable (puede
+  que otro DJ ya la subió), si no está ahí busca en iTunes
+  (`itunes_cover.py`) y lo que encuentra lo sube de vuelta a la nube vía
+  `biblioteca_confiable.actualizar_cover_url()` (actualiza SOLO esa
+  columna — a diferencia de `agregar()`, que upsertea el track entero y
+  pisaría género/BPM si no se le pasan). Las carátulas aparecen en vivo en
+  la grilla (columna nueva, primera tras el play/check) a medida que se
+  encuentran, sin recargar todo el modelo:
+  `TrackModel.actualizar_cover(track_id, url)` actualiza solo esa celda.
+  `gui/cover_loader.py` (`CoverLoader`, singleton) descarga las imágenes de
+  forma asíncrona (`QNetworkAccessManager`, sin bloquear la UI) con caché
+  en memoria compartida entre la grilla de Biblioteca y la de Playlist;
+  `gui/visual_delegates.py:CoverDelegate` pinta la miniatura cuando ya está
+  en caché, y no pinta nada mientras se descarga (aparece sola).
 - **Escritura directa a la Biblioteca Confiable — SOLO mientras la app está en
   desarrollo.** Hoy (sesión 2026-06-19) tanto el scraper de charts como las
   ediciones manuales del DJ en la GUI escriben *directo* a `biblioteca_tracks`

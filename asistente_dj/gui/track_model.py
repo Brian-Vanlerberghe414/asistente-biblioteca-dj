@@ -11,12 +11,12 @@ if _PROJ not in sys.path:
     sys.path.insert(0, _PROJ)
 
 COLS = [
-    "artista", "titulo", "sello", "bpm", "key", "camelot",
+    "cover_url", "artista", "titulo", "sello", "bpm", "key", "camelot",
     "energia_ef", "genero", "subgenero", "formato", "bitrate_kbps", "anio",
     "analizado",
 ]
 HEADERS = [
-    "Artista", "Título", "Sello", "BPM", "Key", "Cam",
+    "", "Artista", "Título", "Sello", "BPM", "Key", "Cam",
     "E", "Género", "Subgénero", "Fmt", "kbps", "Año",
     "Estado",
 ]
@@ -24,6 +24,7 @@ HEADERS = [
 # Columna 0 es Play/Selección (modo dual); las columnas de datos empiezan en 1
 COL_CHECK     = 0
 ROLE_REPRODUCIENDO = Qt.UserRole + 1   # bool: es la fila que está sonando ahora
+COL_CARATULA  = 1 + COLS.index("cover_url")
 COL_ARTISTA   = 1 + COLS.index("artista")
 COL_TITULO    = 1 + COLS.index("titulo")
 COL_BPM       = 1 + COLS.index("bpm")
@@ -98,6 +99,17 @@ class TrackModel(QAbstractTableModel):
 
     def todas(self) -> list[dict]:
         return list(self._filas)
+
+    def actualizar_cover(self, track_id: int, cover_url: str):
+        """Actualiza la carátula de una fila ya cargada (si está visible),
+        sin recargar todo el modelo — usado por CoverFillWorker para que la
+        carátula aparezca en la grilla en vivo, a medida que se encuentra."""
+        for i, fila in enumerate(self._filas):
+            if fila.get("id") == track_id:
+                fila["cover_url"] = cover_url
+                idx = self.index(i, COL_CARATULA)
+                self.dataChanged.emit(idx, idx, [Qt.DisplayRole])
+                return
 
     def fila(self, idx: int) -> dict:
         return self._filas[idx]

@@ -72,6 +72,7 @@ def scan(root: str, conn) -> dict:
             "SELECT genero, subgenero, confianza FROM tracks WHERE ruta_origen=?",
             (path,),
         ).fetchone()
+        cover_url = None
         if existente and existente["confianza"] in ("manual", "supabase"):
             c_genero    = existente["genero"]
             c_subgenero = existente["subgenero"]
@@ -84,7 +85,10 @@ def scan(root: str, conn) -> dict:
             c_confianza = c.confianza
 
             # Paso 2.5: consultar la Biblioteca Confiable (Supabase)
-            # Tiene prioridad sobre el clasificador de tags.
+            # Tiene prioridad sobre el clasificador de tags. De paso, si
+            # tiene carátula ya cargada por otro DJ/escaneo, la traemos
+            # (los tracks que no estén ahí los completa CoverFillWorker
+            # en background, ver gui/workers.py).
             if t.duracion_seg:
                 hit = biblioteca_confiable.buscar(
                     t.artista or "", t.titulo or "", t.duracion_seg
@@ -93,6 +97,8 @@ def scan(root: str, conn) -> dict:
                     c_genero    = hit.genero
                     c_subgenero = hit.subgenero
                     c_confianza = "supabase"
+                    if hit.cover_url:
+                        cover_url = hit.cover_url
 
         estado = "por_revisar" if c_genero is None else "escaneado"
 
@@ -116,6 +122,10 @@ def scan(root: str, conn) -> dict:
             "estado": estado,
             "fecha_ingreso": datetime.now().isoformat(timespec="seconds"),
         }
+        # Solo se manda si se encontró: así no se pisa con NULL un cover_url
+        # que ya hubiera completado CoverFillWorker en un escaneo anterior.
+        if cover_url:
+            data["cover_url"] = cover_url
         db.upsert_track(conn, data)
 
         resumen["total"] += 1

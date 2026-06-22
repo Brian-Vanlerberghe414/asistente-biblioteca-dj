@@ -211,6 +211,31 @@ def agregar(artista: str, titulo: str, duracion_seg: float,
         return False
 
 
+def actualizar_cover_url(artista: str, titulo: str, cover_url: str) -> bool:
+    """Guarda la carátula de un track que YA existe en la Biblioteca
+    Confiable, sin tocar género/BPM/etc. (a diferencia de `agregar()`, que
+    upsertea el track entero). Si el track no existe ahí todavía, no hace
+    nada (no se inventan registros sin género solo para guardar una
+    carátula) — devuelve False en ese caso."""
+    cliente = _get_cliente()
+    if cliente is None or not cover_url:
+        return False
+    art_norm, tit_norm = _norm(artista), _norm(titulo)
+    try:
+        resp = (
+            cliente.table(_TABLA)
+            .update({"cover_url": cover_url})
+            .eq("artista_norm", art_norm)
+            .eq("titulo_norm", tit_norm)
+            .execute()
+        )
+        return bool(resp.data)
+    except Exception as e:
+        print(f"  [biblioteca] Error guardando carátula de "
+              f"'{artista} - {titulo}': {e}")
+        return False
+
+
 def completar_caratulas(limite: int = 50) -> dict:
     """Busca carátula (vía iTunes Search API, ver itunes_cover.py) para los
     tracks de la Biblioteca Confiable que todavía no la tienen, y la guarda
@@ -237,21 +262,9 @@ def completar_caratulas(limite: int = 50) -> dict:
     completadas = sin_caratula = 0
     for f in filas:
         url = itunes_cover.obtener_caratula(f["artista"], f["titulo"])
-        if not url:
-            sin_caratula += 1
-            continue
-        try:
-            (
-                cliente.table(_TABLA)
-                .update({"cover_url": url})
-                .eq("artista_norm", f["artista_norm"])
-                .eq("titulo_norm", f["titulo_norm"])
-                .execute()
-            )
+        if url and actualizar_cover_url(f["artista"], f["titulo"], url):
             completadas += 1
-        except Exception as e:
-            print(f"  [biblioteca] Error guardando carátula de "
-                  f"'{f['artista']} - {f['titulo']}': {e}")
+        else:
             sin_caratula += 1
 
     return {

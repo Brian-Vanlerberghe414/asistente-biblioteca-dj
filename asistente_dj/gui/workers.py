@@ -277,3 +277,67 @@ class ArtistasWorker(QThread):
         self.terminado.emit(res)
 
 
+class CoverFillWorker(QThread):
+    """Completa carátulas faltantes en segundo plano, sin bloquear la
+    toolbar (se lanza directo, no vía MainWindow._lanzar): para cada track
+    local sin cover_url, primero pregunta a la Biblioteca Confiable (puede
+    que otro DJ ya la haya subido) y si no está ahí, busca en iTunes; lo que
+    encuentra por iTunes lo sube de vuelta a la nube para que no haga falta
+    volver a buscarlo. Emite encontrada(track_id, url) por cada track
+    resuelto para que la grilla se actualice en vivo, sin esperar a que
+    termine todo el lote."""
+    encontrada = Signal(int, str)      # track_id, cover_url
+    progreso_n = Signal(int, int)       # resueltos, total
+    terminado = Signal(dict)
+
+    def __init__(self, db_path: str):
+        super().__init__()
+        self.db_path = db_path
+
+    def run(self):
+        proj = os.path.join(os.path.dirname(__file__), "..")
+        if proj not in sys.path:
+            sys.path.insert(0, proj)
+        import db
+        import biblioteca_confiable
+        import itunes_cover
+
+        conn = db.connect(self.db_path)
+        filas = conn.execute(
+            "SELECT id, artista, titulo, duracion_seg FROM tracks "
+            "WHERE (cover_url IS NULL OR cover_url='') "
+            "AND artista IS NOT NULL AND titulo IS NOT NULL "
+            "AND artista != '' AND titulo != ''"
+        ).fetchall()
+        total = len(filas)
+
+        desde_nube = desde_itunes = sin_encontrar = 0
+        for i, f in enumerate(filas, start=1):
+            artista, titulo = f["artista"], f["titulo"]
+            url = None
+
+            hit = biblioteca_confiable.buscar(artista, titulo, f["duracion_seg"] or 0)
+            if hit and hit.cover_url:
+                url = hit.cover_url
+                desde_nube += 1
+            else:
+                url = itunes_cover.obtener_caratula(artista, titulo)
+                if url:
+                    desde_itunes += 1
+                    biblioteca_confiable.actualizar_cover_url(artista, titulo, url)
+
+            if url:
+                conn.execute("UPDATE tracks SET cover_url=? WHERE id=?", (url, f["id"]))
+                conn.commit()
+                self.encontrada.emit(f["id"], url)
+            else:
+                sin_encontrar += 1
+            self.progreso_n.emit(i, total)
+
+        conn.close()
+        self.terminado.emit({
+            "total": total, "desde_nube": desde_nube,
+            "desde_itunes": desde_itunes, "sin_encontrar": sin_encontrar,
+        })
+
+
