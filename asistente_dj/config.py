@@ -16,14 +16,12 @@ GENRE_TREE = {
         "Hard Techno",              # 140+ BPM, agresivo, distorsionado
         "Raw - Deep - Hypnotic",    # Beatport nueva cat. — underground, hipnótico, intelectual
         "Industrial",               # EBM, noise, dark industrial
-        "Melodic Techno",           # Melódico, atmosférico — lado techno de Melodic H&T
         "Minimal - Deep Tech",      # Minimalista, stripped-down, groovy
     ],
     # ------------------------------------------------------------------- HOUSE
     "House": [
         "Progressive House",        # Melódico, buildups largos, emotional
         "Deep House",               # Soulful, jazzy, groovy, vocal samples
-        "Melodic House",            # Lado house de Melodic H&T — Anyma, ARTBAT, Massano
         "Tech House",               # Percusivo, bass-driven, club
         "Jackin House",             # Funky, Chicago, swingy
         "Bass House",               # Bass-heavy, festival, filthy
@@ -43,7 +41,11 @@ GENRE_TREE = {
         "Raw - Deep - Hypnotic",    # Beatport nueva cat. — underground, instrumental
     ],
     # ----------------------------------------------- MELODIC HOUSE & TECHNO
-    # Categoría propia de Beatport — crossover entre House y Techno melódico
+    # Categoría propia de Beatport — crossover entre House y Techno melódico.
+    # (sesión 2026-06-22) Eliminados "Melodic House" y "Melodic Techno" como
+    # subgéneros propios de House/Techno: en la práctica eran el mismo sonido
+    # y se confundían entre sí. Todo lo que antes caía en cualquiera de los
+    # dos ahora es directamente "Melodic House & Techno" (sin subgénero).
     "Melodic House & Techno": [],
     # ----------------------------------------------------------------- BREAKS
     "Breaks": [
@@ -178,13 +180,6 @@ GENRE_ALIASES = {
     "dark electro": ("Techno", "Industrial"),
     "aggrotech": ("Techno", "Industrial"),
 
-    # — Melodic Techno —
-    "melodic techno": ("Techno", "Melodic Techno"),
-    "melodic house techno": ("Techno", "Melodic Techno"),
-    "melodic progressive": ("Techno", "Melodic Techno"),
-    "progressive melodic": ("Techno", "Melodic Techno"),
-    "melodic": ("Techno", "Melodic Techno"),
-
     # — Minimal / Deep Tech —
     "minimal": ("Techno", "Minimal - Deep Tech"),
     "minimal techno": ("Techno", "Minimal - Deep Tech"),
@@ -199,6 +194,14 @@ GENRE_ALIASES = {
     # =====================================================================
     "melodic house and techno": ("Melodic House & Techno", None),
     "melodic and progressive": ("Melodic House & Techno", None),
+    # "Melodic Techno" y "Melodic House" se fusionaron en este género único
+    # (sesión 2026-06-22) — sonaban igual y se confundían entre sí.
+    "melodic techno": ("Melodic House & Techno", None),
+    "melodic house techno": ("Melodic House & Techno", None),
+    "melodic progressive": ("Melodic House & Techno", None),
+    "progressive melodic": ("Melodic House & Techno", None),
+    "melodic": ("Melodic House & Techno", None),
+    "melodic house": ("Melodic House & Techno", None),
 
     # =====================================================================
     # HOUSE
@@ -229,9 +232,6 @@ GENRE_ALIASES = {
     "lounge house": ("House", "Deep House"),
     "jazzy house": ("House", "Deep House"),
     "tropical house": ("House", "Deep House"),
-
-    # — Melodic House —
-    "melodic house": ("House", "Melodic House"),
 
     # — Tech House —
     "tech house": ("House", "Tech House"),

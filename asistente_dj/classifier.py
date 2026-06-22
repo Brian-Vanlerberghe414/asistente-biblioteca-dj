@@ -10,7 +10,7 @@ from config import GENRE_ALIASES, GENRE_TREE, FOLDER_REVIEW
 @dataclass
 class Classification:
     genero: str | None        # ej. "Techno"  (None => sin clasificar)
-    subgenero: str | None     # ej. "Melodic Techno"
+    subgenero: str | None     # ej. "Peak Time - Driving"
     confianza: str            # "exacta" | "parcial" | "ninguna"
     carpeta_relativa: str     # ruta destino relativa (ej. "Techno/Melodic Techno")
     nota: str = ""

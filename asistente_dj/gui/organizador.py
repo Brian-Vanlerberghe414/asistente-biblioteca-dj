@@ -1067,7 +1067,7 @@ class OrganizadorWidget(QWidget):
         lbl_com = QLabel("Comentario opcional:")
         lay.addWidget(lbl_com)
         comentario_edit = QTextEdit()
-        comentario_edit.setPlaceholderText("Ej: corregí el género de este track a Melodic Techno…")
+        comentario_edit.setPlaceholderText("Ej: corregí el género de este track a Tech House…")
         comentario_edit.setMaximumHeight(70)
         lay.addWidget(comentario_edit)
 

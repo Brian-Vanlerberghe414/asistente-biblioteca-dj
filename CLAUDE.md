@@ -148,9 +148,23 @@ python app.py
 
 - **Almacenamiento físico por Género/Subgénero**; un track = una carpeta. La
   organización "dinámica" (filtros por BPM/key/energía/etc.) son vistas, no mueven archivos.
-- **Árbol de géneros** (en `config.py`): Techno (Peak Time - Driving, Melodic
-  Techno, Minimal - Deep Tech), House (Progressive, Tech, Bass, Afro, Organic,
-  Electro), Trance (Main Floor, Tech, Progressive, Psy-Trance), Indie Dance, Big Room.
+- **Árbol de géneros** (en `config.py`): Techno (Peak Time - Driving, Hard
+  Techno, Raw - Deep - Hypnotic, Industrial, Minimal - Deep Tech), House
+  (Progressive, Deep, Tech, Jackin, Bass, Afro, Organic, Electro), Trance
+  (Main Floor, Tech, Progressive, Psy-Trance), Indie Dance, Big Room,
+  Melodic House & Techno (género propio, sin subgéneros).
+- **"Melodic House" y "Melodic Techno" eliminados como subgéneros propios
+  (sesión 2026-06-22)**: vivían como subgénero de House y de Techno
+  respectivamente, pero en la práctica sonaban igual y se confundían entre
+  sí todo el tiempo. Se fusionaron en el género ya existente "Melodic House
+  & Techno" (sin subgénero) — los alias en `config.GENRE_ALIASES` que antes
+  apuntaban a `("Techno","Melodic Techno")`/`("House","Melodic House")`
+  ahora apuntan a `("Melodic House & Techno", None)`. Se migraron los datos
+  ya clasificados (local: 6 tracks de Brian con el subgénero viejo, ahora
+  en "Melodic House & Techno"); la Biblioteca Confiable en Supabase
+  (`biblioteca_tracks`/`mi_biblioteca`/`artistas_generos`) ya estaba limpia
+  — Beatport nunca tuvo esa división como subgénero separado, así que solo
+  afectaba a la clasificación local de Brian (tag/audio).
 - **Fuente de BPM/key, prioridad:** Rekordbox/Traktor (exacto) > Beatport API
   (cuando haya credenciales) > GetSongBPM > análisis de audio propio (fallback,
   con errores de octava). El BPM del tag se ignora si es "0" o no numérico.
