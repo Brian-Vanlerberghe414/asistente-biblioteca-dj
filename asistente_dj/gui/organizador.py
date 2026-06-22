@@ -873,17 +873,6 @@ class OrganizadorWidget(QWidget):
             item_rev = QTreeWidgetItem(root, [f"Género no reconocido  ({sin_genero})"])
             item_rev.setData(0, Qt.UserRole, ("_Por revisar", None))
 
-        # nodo "Tu Playlist" al nivel raíz (fuera de Tu Música)
-        playlists = conn.execute(
-            "SELECT nombre FROM playlists ORDER BY nombre"
-        ).fetchall()
-        item_pl = QTreeWidgetItem(self._tree, ["Tu Playlist"])
-        item_pl.setData(0, Qt.UserRole, ("_playlist_root", None))
-        for pl in playlists:
-            hijo = QTreeWidgetItem(item_pl, [pl["nombre"]])
-            hijo.setData(0, Qt.UserRole, ("_playlist", pl["nombre"]))
-        item_pl.setExpanded(False)
-
     def _on_tree_click(self, current, _previous):
         if current is None:
             return
@@ -894,22 +883,6 @@ class OrganizadorWidget(QWidget):
             conn = db_mod.connect(self._db_path)
             self._model.recargar(conn, self._filtro_genero, self._filtro_subgenero)
             conn.close()
-        elif dato[0] == "_playlist":
-            import json
-            nombre_pl = dato[1]
-            conn = db_mod.connect(self._db_path)
-            row = conn.execute(
-                "SELECT reglas FROM playlists WHERE nombre=?", (nombre_pl,)
-            ).fetchone()
-            if row:
-                ids = json.loads(row["reglas"]).get("ids", [])
-                self._model.recargar_por_ids(conn, ids)
-            conn.close()
-            self._actualizar_contador()
-            self._on_filtro_cambiado()
-            return
-        elif dato[0] == "_playlist_root":
-            return
         else:
             self._filtro_genero, self._filtro_subgenero = dato
             conn = db_mod.connect(self._db_path)
@@ -1156,12 +1129,6 @@ class OrganizadorWidget(QWidget):
         conn.close()
         self._model.limpiar_seleccion()
         self.recargar()
-
-    def recargar_playlists(self):
-        """Refresca el árbol para mostrar las playlists actualizadas."""
-        conn = db_mod.connect(self._db_path)
-        self._poblar_arbol(conn)
-        conn.close()
 
     def closeEvent(self, event):
         self._player.parar()

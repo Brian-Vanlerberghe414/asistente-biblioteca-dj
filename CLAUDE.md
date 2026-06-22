@@ -115,12 +115,17 @@ python app.py
   BPM + rasgos acústicos (graves/brillo/densidad), usado como fallback en
   `analyzer.suggest_genre` cuando no hay tag ni match en la Biblioteca Confiable.
 - `app.py` — punto de entrada de la GUI (PySide6).
-- `gui/` — interfaz gráfica: `main_window.py` (ventana principal), `organizador.py`
-  (grilla + reproductor con cola/shuffle inteligente), `track_model.py` (modelo
-  de tabla editable), `detalle_panel.py` (panel de detalle), `track_table_view.py`,
-  `waveform_widget.py`, `theme.py`, delegates de edición inline (género, BPM,
-  artista). `artistas_widget.py` y sus workers existen pero todavía no están
-  conectados a la ventana principal.
+- `gui/` — interfaz gráfica: `main_window.py` (ventana principal, pestañas en
+  horizontal **Biblioteca - Playlist - Charts**), `organizador.py`
+  (grilla + reproductor con cola/shuffle inteligente; el árbol de géneros ya
+  NO tiene nodo de playlists, se movió a su propia pestaña), `playlists_widget.py`
+  (pestaña Playlist: lista de playlists con renombrar/borrar/exportar a
+  Rekordbox + grilla de solo lectura de sus tracks; la creación de playlists
+  sigue siendo desde Biblioteca con selección de tracks + botón "➕ Playlist"),
+  `track_model.py` (modelo de tabla editable), `detalle_panel.py` (panel de
+  detalle), `track_table_view.py`, `waveform_widget.py`, `theme.py`, delegates
+  de edición inline (género, BPM, artista). `artistas_widget.py` y sus
+  workers existen pero todavía no están conectados a la ventana principal.
 - `tests/make_test_files.py` — genera MP3 de prueba.
 
 ## Stack y por qué

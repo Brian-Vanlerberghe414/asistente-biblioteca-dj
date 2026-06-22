@@ -23,6 +23,7 @@ def _asset(name: str) -> str:
 from gui.artistas_widget import ArtistasWidget
 from gui.charts_widget import ChartsWidget
 from gui.organizador import OrganizadorWidget
+from gui.playlists_widget import PlaylistsWidget
 from gui.workers import (
     AnalyzeWorker, ArchiveWorker, BackupNubeWorker, DjImportWorker, ScanWorker,
 )
@@ -55,6 +56,8 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget(self)
         self._org = OrganizadorWidget(self._db_path, self)
         self._tabs.addTab(self._org, "Biblioteca")
+        self._playlists = PlaylistsWidget(self._db_path, self)
+        self._tabs.addTab(self._playlists, "Playlist")
         self._charts = ChartsWidget(self._db_path, self)
         self._tabs.addTab(self._charts, "Charts")
         self._tabs.currentChanged.connect(self._on_tab_changed)
@@ -136,7 +139,7 @@ class MainWindow(QMainWindow):
             self._set_toolbar(True)
             playlists = resultado.get("playlists") or []
             if playlists:
-                self._org.recargar_playlists()
+                self._playlists.recargar()
             partes = [
                 f"BPM/key actualizados: {resultado.get('actualizados', 0)}",
                 f"sin match: {resultado.get('sin_match', 0)}",
@@ -465,7 +468,7 @@ class MainWindow(QMainWindow):
             cloud_sync.push_playlist(nombre, ids, conn)
         conn.close()
 
-        self._org.recargar_playlists()
+        self._playlists.recargar()
         QMessageBox.information(
             self, "Playlist creada",
             f"Playlist «{nombre}» creada con {len(ids)} tracks."
@@ -529,7 +532,7 @@ class MainWindow(QMainWindow):
 
         if n_tracks or n_playlists:
             self._org.recargar()
-            self._org.recargar_playlists()
+            self._playlists.recargar()
         self.statusBar().showMessage(
             f"Sincronizado: {n_tracks} track(s), {n_playlists} playlist(s) actualizadas."
         )
