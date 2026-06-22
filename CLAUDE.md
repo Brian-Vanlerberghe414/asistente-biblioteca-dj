@@ -62,7 +62,7 @@ python cli.py playlist-export "<salida.xml>" --nombre "<playlist>"    # exportar
 python cli.py plan / archive "<destino>" [--apply]    # plan/archivado por género
 python cli.py review                           # tracks sin género (_Por revisar)
 python cli.py import-serato "<carpeta Serato>"      # BPM/key/género desde la base binaria de Serato
-python cli.py biblioteca estado|agregar|listar      # Biblioteca Confiable (Supabase) — fuente prioritaria de género
+python cli.py biblioteca estado|agregar|listar|caratulas   # Biblioteca Confiable (Supabase) — fuente prioritaria de género; caratulas: completa cover_url faltantes vía iTunes
 python cli.py config --supabase-url URL --supabase-key KEY   # credenciales de Supabase
 python cli.py charts-generos                        # Módulo 2: slugs de género disponibles en Beatport
 python cli.py charts-scrape [--genero SLUG]          # Módulo 2: scrapear Top 100 (global y/o por género)
@@ -100,9 +100,10 @@ python app.py
   Music (sin API key) para carátulas (cover art): `obtener_caratula(artista,
   titulo, size=600)` y `obtener_caratulas_lote(tracks)`. Caché en memoria
   por (artista, título) + throttle configurable (~20 req/min, el límite
-  documentado de Apple) para procesar lotes sin pasarse. Todavía no está
-  conectado a ningún flujo del CLI/GUI — es la pieza base para mostrar
-  carátulas más adelante (ej. panel de detalle, charts).
+  documentado de Apple) para procesar lotes sin pasarse. Conectado a la
+  Biblioteca Confiable vía `biblioteca_confiable.completar_caratulas()`
+  (ver más abajo); todavía no está conectado a la GUI (panel de detalle,
+  charts) para MOSTRAR la imagen, solo para completarla en Supabase.
 - `serato_db.py` — parser binario de la base de datos de Serato (database V2).
 - `cloud_backup.py` — Módulo 3 Fase 2: backup de audio personal a Cloudflare
   R2 vía el backend (`backend/`); usa la cuenta personal del DJ
@@ -187,6 +188,18 @@ python app.py
   `python cli.py config --supabase-url URL --supabase-key KEY`. Si no está
   configurada o falla la red, el lookup devuelve `None` sin romper nada y el
   flujo sigue por el clasificador de tags normalmente.
+- **Carátulas (cover art) en la Biblioteca Confiable (sesión 2026-06-22)**:
+  columna `cover_url` en `biblioteca_tracks` (migración
+  `supabase_setup_cover_url.sql`). Decisión clave: se guarda **solo la URL**
+  (al CDN de Apple/mzstatic.com vía `itunes_cover.py`), nunca se descarga ni
+  se aloja la imagen — costo de storage despreciable (~150 bytes/fila) y
+  sin depender de infraestructura propia. `biblioteca_confiable.completar_caratulas(limite)`
+  busca tracks con `cover_url` vacío y los completa vía iTunes Search API;
+  comando `python cli.py biblioteca caratulas --limit N`. `agregar()` solo
+  pisa `cover_url` si se le pasa explícitamente (no se borra una carátula ya
+  encontrada en cada upsert de género/BPM, que es un flujo separado).
+  Validado contra la Biblioteca Confiable real (2.310 tracks): 5/5 carátulas
+  encontradas en la primera corrida de prueba.
 - **Escritura directa a la Biblioteca Confiable — SOLO mientras la app está en
   desarrollo.** Hoy (sesión 2026-06-19) tanto el scraper de charts como las
   ediciones manuales del DJ en la GUI escriben *directo* a `biblioteca_tracks`

@@ -98,6 +98,7 @@ class ResultadoBiblioteca:
     subgenero: Optional[str]
     bpm: Optional[float] = None
     camelot: Optional[str] = None
+    cover_url: Optional[str] = None
 
 
 # ──────────────────────────────────────────────────── API pública ────────────
@@ -121,7 +122,7 @@ def buscar(artista: str, titulo: str,
     try:
         resp = (
             cliente.table(_TABLA)
-            .select("genero, subgenero, bpm, camelot")
+            .select("genero, subgenero, bpm, camelot, cover_url")
             .ilike("artista_norm", art)
             .ilike("titulo_norm", tit)
             .gte("duracion_seg", round(duracion_seg - 2, 2))
@@ -137,6 +138,7 @@ def buscar(artista: str, titulo: str,
                 subgenero=r.get("subgenero"),
                 bpm=r.get("bpm"),
                 camelot=r.get("camelot"),
+                cover_url=r.get("cover_url"),
             )
     except Exception as e:
         print(f"  [biblioteca] Error consultando Supabase: {e}")
@@ -146,7 +148,7 @@ def buscar(artista: str, titulo: str,
 def agregar(artista: str, titulo: str, duracion_seg: float,
             genero: Optional[str] = None, subgenero: Optional[str] = None,
             sello: Optional[str] = None, bpm: Optional[float] = None,
-            camelot: Optional[str] = None,
+            camelot: Optional[str] = None, cover_url: Optional[str] = None,
             fuente: str = "manual") -> bool:
     """Agrega o actualiza un track en la Biblioteca Confiable.
 
@@ -192,6 +194,11 @@ def agregar(artista: str, titulo: str, duracion_seg: float,
         "fuente":       fuente,
         "confirmado":   True,
     }
+    # cover_url se completa por separado (lookup en iTunes, ver
+    # completar_caratulas) — solo se manda acá si este llamado YA la trae,
+    # para no pisarla a None en cada agregar() que no sabe de carátulas.
+    if cover_url:
+        data["cover_url"] = cover_url
     try:
         (
             cliente.table(_TABLA)
@@ -202,6 +209,56 @@ def agregar(artista: str, titulo: str, duracion_seg: float,
     except Exception as e:
         print(f"  [biblioteca] Error guardando en Supabase: {e}")
         return False
+
+
+def completar_caratulas(limite: int = 50) -> dict:
+    """Busca carátula (vía iTunes Search API, ver itunes_cover.py) para los
+    tracks de la Biblioteca Confiable que todavía no la tienen, y la guarda
+    (solo la URL, no la imagen — ver decisión de diseño en CLAUDE.md).
+    Devuelve {"completadas", "sin_caratula", "revisados"}."""
+    cliente = _get_cliente()
+    if cliente is None:
+        return {"completadas": 0, "sin_caratula": 0, "revisados": 0}
+
+    import itunes_cover
+    try:
+        resp = (
+            cliente.table(_TABLA)
+            .select("artista_norm, titulo_norm, artista, titulo")
+            .is_("cover_url", "null")
+            .limit(limite)
+            .execute()
+        )
+        filas = resp.data or []
+    except Exception as e:
+        print(f"  [biblioteca] Error consultando tracks sin carátula: {e}")
+        return {"completadas": 0, "sin_caratula": 0, "revisados": 0}
+
+    completadas = sin_caratula = 0
+    for f in filas:
+        url = itunes_cover.obtener_caratula(f["artista"], f["titulo"])
+        if not url:
+            sin_caratula += 1
+            continue
+        try:
+            (
+                cliente.table(_TABLA)
+                .update({"cover_url": url})
+                .eq("artista_norm", f["artista_norm"])
+                .eq("titulo_norm", f["titulo_norm"])
+                .execute()
+            )
+            completadas += 1
+        except Exception as e:
+            print(f"  [biblioteca] Error guardando carátula de "
+                  f"'{f['artista']} - {f['titulo']}': {e}")
+            sin_caratula += 1
+
+    return {
+        "completadas": completadas,
+        "sin_caratula": sin_caratula,
+        "revisados": len(filas),
+    }
 
 
 def listar(genero: Optional[str] = None, limit: int = 50) -> list[dict]:

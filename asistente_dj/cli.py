@@ -715,6 +715,14 @@ def cmd_biblioteca(args):
             print(f"{(t['artista'] or ''):<35.35} {(t['titulo'] or ''):<40.40} "
                   f"{t['genero']:<20} {sub}")
 
+    elif args.accion == "caratulas":
+        res = biblioteca_confiable.completar_caratulas(limite=args.limit)
+        print(f"Revisados        : {res['revisados']}")
+        print(f"Carátulas nuevas : {res['completadas']}")
+        print(f"Sin carátula     : {res['sin_caratula']}")
+        if res["revisados"] == args.limit:
+            print(f"\n(Puede haber más — corré de nuevo o subí --limit.)")
+
     elif args.accion == "artista":
         registros = biblioteca_confiable.generos_de_artista(args.nombre)
         if not registros:
@@ -2272,9 +2280,10 @@ def main(argv=None):
 
     sp = sub.add_parser("biblioteca",
                         help="Gestionar la Biblioteca Confiable en Supabase")
-    sp.add_argument("accion", choices=["estado", "agregar", "listar", "artista"],
+    sp.add_argument("accion", choices=["estado", "agregar", "listar", "artista", "caratulas"],
                     help="estado: verificar conexión | agregar: subir track | "
-                         "listar: ver registros | artista: ver géneros que produce")
+                         "listar: ver registros | artista: ver géneros que produce | "
+                         "caratulas: completar cover_url faltantes vía iTunes")
     sp.add_argument("--ruta", help="Ruta del track a agregar (para accion=agregar)")
     sp.add_argument("--genero", help="Filtrar por género (para accion=listar)")
     sp.add_argument("--limit", type=int, default=50, help="Máximo de resultados (listar)")
