@@ -31,13 +31,26 @@ CAMELOT_COLORS = [
     "#7A8CE8", "#6AB4DC",
 ]
 
-# ── Colores por género ────────────────────────────────────────────────────────
+# ── Colores por género (uno distinto por cada género del árbol, ver
+# config.GENRE_TREE — incluso los que no tienen subgéneros para desplegar) ──
 GENRE_COLORS = {
-    "Techno":      "#00E5FF",
-    "House":       "#FF6B00",
-    "Trance":      "#A77CE0",
-    "Indie Dance": "#4FD64F",
-    "Big Room":    "#FFD23A",
+    "Techno":                  "#00E5FF",
+    "House":                   "#FF6B00",
+    "Trance":                  "#A77CE0",
+    "Melodic House & Techno":  "#FF4FA3",
+    "Breaks":                  "#5FE0C8",
+    "Drum & Bass":             "#FF4F4F",
+    "UK Garage":               "#4FA0FF",
+    "Electro":                 "#C49A6C",
+    "Indie Dance":             "#4FD64F",
+    "Electronica":             "#BCBD3A",
+    "Ambient":                 "#8FA8C9",
+    "Afro":                    "#E0883D",
+    "Hard Dance":              "#FF2D78",
+    "Big Room":                "#FFD23A",
+    "Funk & Soul":             "#C77DFF",
+    "Hip-Hop":                 "#B5654A",
+    "Latin":                   "#FFA94D",
 }
 
 # ── QSS principal ─────────────────────────────────────────────────────────────
@@ -129,7 +142,7 @@ QTreeWidget {{
     padding-top: 4px;
 }}
 QTreeWidget::item {{
-    padding: 5px 8px 5px 4px;
+    padding: 5px 8px 5px 0px;
     border-radius: 4px;
     height: 26px;
 }}
@@ -140,8 +153,16 @@ QTreeWidget::item:selected {{
     background: rgba(0,229,255,0.10);
     color: {CYAN};
 }}
+/* Sin flechitas de expandir/colapsar (se abre con un click en el nombre,
+   ver _on_tree_click) — así no queda ningún recuadro reservado a la
+   izquierda del género y el texto arranca lo más a la izquierda posible.
+   Se cubren todos los estados nativos del branch (abierto/cerrado, con/sin
+   hermanos, seleccionado) para que ningún estilo de Windows dibuje un
+   recuadro de relleno donde iba la flechita. */
 QTreeWidget::branch {{
     background: transparent;
+    border-image: none;
+    image: none;
 }}
 QTreeWidget QHeaderView::section {{
     background: {BG_PANEL};

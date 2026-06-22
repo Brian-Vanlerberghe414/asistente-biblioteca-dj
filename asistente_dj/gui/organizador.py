@@ -650,6 +650,14 @@ class OrganizadorWidget(QWidget):
         self._tree.setHeaderHidden(True)
         self._tree.setMinimumWidth(160)
         self._tree.setMaximumWidth(260)
+        # Sin flechita de expandir (un click en el nombre ya abre/cierra, ver
+        # _on_tree_click): así los géneros sin subgénero no quedan más a la
+        # izquierda que los que sí tienen — todos arrancan en la misma
+        # columna. setItemsExpandable(False) saca el control nativo, pero
+        # item.setExpanded() programático sigue funcionando igual.
+        self._tree.setRootIsDecorated(False)
+        self._tree.setItemsExpandable(False)
+        self._tree.setIndentation(10)
         self._tree.currentItemChanged.connect(self._on_tree_click)
         self._tree.itemExpanded.connect(self._on_genero_expandido)
 
