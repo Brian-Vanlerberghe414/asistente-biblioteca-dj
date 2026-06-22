@@ -194,6 +194,27 @@ python app.py
   en el roadmap más abajo.
 - **Rekordbox:** import (BPM/key + verificación) y export de playlists. Nunca
   modifica la base de Rekordbox; solo lee XML y escribe un XML nuevo.
+- **Rutas correctas tras archivar (sesión 2026-06-22):** `archiver.py` solo
+  COPIA los archivos (nunca borra el original), así que mientras el DJ no
+  borre los originales a mano, sus playlists de Rekordbox no se rompen. El
+  problema aparece cuando el DJ borra los originales para no duplicar
+  espacio. Solución: `import-rekordbox` ahora también lee `<PLAYLISTS>`
+  del XML (`rekordbox_xml.parse_playlists()`) y crea esas playlists
+  localmente (`reglas={"ids":[...]}`, mismo formato que usa la GUI),
+  matcheando cada track por el mismo criterio ya usado para BPM/key (ruta
+  exacta → nombre de archivo → artista+título). `rekordbox_export.py`
+  ahora prefiere `ruta_destino` (la ruta ya archivada) sobre `ruta_origen`
+  al exportar — antes siempre usaba `ruta_origen`, lo cual rompía
+  cualquier playlist exportada después de archivar. `playlist-export
+  --todas` exporta todas las playlists guardadas a un solo XML (una sola
+  `<COLLECTION>` compartida, sin duplicar tracks repetidos entre
+  playlists). Flujo completo: el DJ exporta su colección+playlists desde
+  Rekordbox → `import-rekordbox` (trae BPM/key Y crea las playlists) →
+  el DJ archiva su biblioteca como siempre → `playlist-export --todas` →
+  arrastra esa vista a su colección real en Rekordbox, ya con las rutas
+  nuevas. `_tracks_por_reglas` (en `cli.py`) ahora soporta tanto
+  `reglas={"ids":[...]}` (preservando el orden) como el formato de
+  filtros de siempre.
 
 ## Base de datos (SQLite)
 

@@ -31,20 +31,45 @@ def _attr(s) -> str:
     return escape(str(s if s is not None else ""), {'"': "&quot;"})
 
 
+def _ruta_track(t: dict) -> str:
+    """Prefiere la ruta ya archivada (ruta_destino); si el track todavía no
+    se archivó, cae a la ruta original."""
+    return t.get("ruta_destino") or t.get("ruta_origen") or ""
+
+
 def escribir_playlist(tracks: list[dict], nombre_playlist: str, out_path: str) -> int:
-    """tracks: lista de dicts con ruta_origen, artista, titulo, bpm, key,
-    genero, sello. Devuelve cuántos tracks se escribieron."""
+    """tracks: lista de dicts con ruta_origen/ruta_destino, artista, titulo,
+    bpm, key, genero, sello. Devuelve cuántos tracks se escribieron."""
+    return escribir_playlists({nombre_playlist: tracks}, out_path)
+
+
+def escribir_playlists(playlists: dict[str, list[dict]], out_path: str) -> int:
+    """playlists: {nombre_playlist: [tracks...]}. Todas comparten una sola
+    <COLLECTION> (sin duplicar tracks repetidos entre playlists) y cada una
+    es un <NODE> bajo ROOT. Devuelve el total de tracks en la colección."""
+    # Colección única: un TrackID por ruta de archivo (evita duplicar el
+    # mismo track si aparece en más de una playlist).
+    track_id_por_ruta: dict[str, int] = {}
+    todos_los_tracks: list[dict] = []
+    for tracks in playlists.values():
+        for t in tracks:
+            ruta = _ruta_track(t)
+            if ruta not in track_id_por_ruta:
+                track_id_por_ruta[ruta] = len(todos_los_tracks) + 1
+                todos_los_tracks.append(t)
+
     lineas = []
     lineas.append('<?xml version="1.0" encoding="UTF-8"?>')
     lineas.append('<DJ_PLAYLISTS Version="1.0.0">')
     lineas.append('  <PRODUCT Name="Asistente DJ" Version="1.0" Company="Brian"/>')
-    lineas.append(f'  <COLLECTION Entries="{len(tracks)}">')
-    for i, t in enumerate(tracks, 1):
-        loc = _ruta_a_location(t.get("ruta_origen", ""))
+    lineas.append(f'  <COLLECTION Entries="{len(todos_los_tracks)}">')
+    for t in todos_los_tracks:
+        tid = track_id_por_ruta[_ruta_track(t)]
+        loc = _ruta_a_location(_ruta_track(t))
         bpm = t.get("bpm") or ""
         key = t.get("key") or ""
         lineas.append(
-            f'    <TRACK TrackID="{i}" '
+            f'    <TRACK TrackID="{tid}" '
             f'Name="{_attr(t.get("titulo"))}" '
             f'Artist="{_attr(t.get("artista"))}" '
             f'Genre="{_attr(t.get("genero"))}" '
@@ -55,17 +80,19 @@ def escribir_playlist(tracks: list[dict], nombre_playlist: str, out_path: str) -
         )
     lineas.append('  </COLLECTION>')
     lineas.append('  <PLAYLISTS>')
-    lineas.append('    <NODE Type="0" Name="ROOT" Count="1">')
-    lineas.append(
-        f'      <NODE Name="{_attr(nombre_playlist)}" Type="1" '
-        f'KeyType="0" Entries="{len(tracks)}">')
-    for i in range(1, len(tracks) + 1):
-        lineas.append(f'        <TRACK Key="{i}"/>')
-    lineas.append('      </NODE>')
+    lineas.append(f'    <NODE Type="0" Name="ROOT" Count="{len(playlists)}">')
+    for nombre_playlist, tracks in playlists.items():
+        lineas.append(
+            f'      <NODE Name="{_attr(nombre_playlist)}" Type="1" '
+            f'KeyType="0" Entries="{len(tracks)}">')
+        for t in tracks:
+            tid = track_id_por_ruta[_ruta_track(t)]
+            lineas.append(f'        <TRACK Key="{tid}"/>')
+        lineas.append('      </NODE>')
     lineas.append('    </NODE>')
     lineas.append('  </PLAYLISTS>')
     lineas.append('</DJ_PLAYLISTS>')
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lineas))
-    return len(tracks)
+    return len(todos_los_tracks)

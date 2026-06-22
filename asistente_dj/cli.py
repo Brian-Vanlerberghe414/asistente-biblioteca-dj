@@ -495,25 +495,38 @@ def _norm(s):
     return "".join(ch for ch in (s or "").lower() if ch.isalnum())
 
 
-def _match_y_actualizar(conn, registros, fuente):
-    """Matchea una lista de tracks de un software DJ con la base y trae BPM/key.
-    Cada registro tiene: location, artista, titulo, bpm, key.
-    Matching: ruta exacta -> nombre de archivo -> artista+título.
-    Devuelve (actualizados, sin_match, sin_bpm)."""
+def _indice_match(conn):
+    """Índice id local por ruta exacta / nombre de archivo / artista+título,
+    reutilizado por todo lo que matchea contra software DJ externo."""
     por_ruta, por_base, por_at = {}, {}, {}
     for r in conn.execute("SELECT id, ruta_origen, artista, titulo FROM tracks"):
         ruta = (r["ruta_origen"] or "").replace("\\", "/").lower()
         por_ruta[ruta] = r["id"]
         por_base.setdefault(ruta.rsplit("/", 1)[-1], r["id"])
         por_at.setdefault(_norm(r["artista"]) + _norm(r["titulo"]), r["id"])
+    return por_ruta, por_base, por_at
+
+
+def _matchear_registro(indice, reg):
+    """reg necesita .location, .artista, .titulo. Devuelve el id local o None."""
+    por_ruta, por_base, por_at = indice
+    loc = (reg.location or "").replace("\\", "/").lower()
+    return (por_ruta.get(loc)
+            or por_base.get(loc.rsplit("/", 1)[-1])
+            or por_at.get(_norm(reg.artista) + _norm(reg.titulo)))
+
+
+def _match_y_actualizar(conn, registros, fuente):
+    """Matchea una lista de tracks de un software DJ con la base y trae BPM/key.
+    Cada registro tiene: location, artista, titulo, bpm, key.
+    Matching: ruta exacta -> nombre de archivo -> artista+título.
+    Devuelve (actualizados, sin_match, sin_bpm)."""
+    indice = _indice_match(conn)
 
     from getsongbpm import key_a_camelot
     actualizados = sin_match = sin_bpm = 0
     for reg in registros:
-        loc = (reg.location or "").replace("\\", "/").lower()
-        tid = (por_ruta.get(loc)
-               or por_base.get(loc.rsplit("/", 1)[-1])
-               or por_at.get(_norm(reg.artista) + _norm(reg.titulo)))
+        tid = _matchear_registro(indice, reg)
         if tid is None:
             sin_match += 1
             continue
@@ -1426,6 +1439,36 @@ def cmd_import_rekordbox(args):
         print(f"Tracks sin BPM en el XML             : {sin_bpm}")
     print("\n(Los BPM de Rekordbox son ahora la fuente exacta; el análisis de "
           "audio no los sobrescribe.)")
+
+    playlists_rb = rekordbox_xml.parse_playlists(args.xml)
+    if playlists_rb:
+        indice = _indice_match(conn)
+        por_track_id = {t.track_id: t for t in rbtracks if t.track_id}
+        n_importadas = 0
+        print(f"\nPlaylists en el XML: {len(playlists_rb)}")
+        for pl in playlists_rb:
+            ids = []
+            for key in pl["track_ids_rb"]:
+                rb = por_track_id.get(key)
+                if rb is None:
+                    continue
+                tid = _matchear_registro(indice, rb)
+                if tid is not None:
+                    ids.append(tid)
+            if not ids:
+                print(f"  • {pl['nombre']}: 0 tracks con match, no se importa")
+                continue
+            conn.execute(
+                "INSERT INTO playlists(nombre, reglas) VALUES(?, ?) "
+                "ON CONFLICT(nombre) DO UPDATE SET reglas=excluded.reglas",
+                (pl["nombre"], json.dumps({"ids": ids})))
+            n_importadas += 1
+            faltantes = len(pl["track_ids_rb"]) - len(ids)
+            extra = f" ({faltantes} sin match)" if faltantes else ""
+            print(f"  • {pl['nombre']}: {len(ids)} tracks{extra}")
+        conn.commit()
+        print(f"\nPlaylists importadas: {n_importadas}")
+
     conn.close()
     return 0
 
@@ -1709,9 +1752,20 @@ def _where_desde_reglas(reglas: dict):
 
 
 def _tracks_por_reglas(conn, reglas: dict):
+    cols = "id, ruta_origen, ruta_destino, artista, titulo, bpm, key, genero, sello"
+    if reglas.get("ids"):
+        ids = reglas["ids"]
+        placeholders = ",".join("?" * len(ids))
+        filas = {
+            r["id"]: dict(r) for r in conn.execute(
+                f"SELECT {cols} FROM tracks WHERE id IN ({placeholders})", ids
+            ).fetchall()
+        }
+        # se preserva el orden de la lista (importante para sets armados)
+        return [filas[i] for i in ids if i in filas]
     where, params = _where_desde_reglas(reglas)
-    sql = ("SELECT ruta_origen, artista, titulo, bpm, key, genero, sello "
-           f"FROM tracks WHERE {where} ORDER BY CAST(NULLIF(bpm,'') AS REAL)")
+    sql = (f"SELECT {cols} FROM tracks WHERE {where} "
+           "ORDER BY CAST(NULLIF(bpm,'') AS REAL)")
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
@@ -1754,6 +1808,25 @@ def cmd_playlist_export(args):
     _print_header()
     import rekordbox_export
     conn = db.connect(args.db)
+
+    if getattr(args, "todas", False):
+        rows = conn.execute("SELECT nombre, reglas FROM playlists").fetchall()
+        playlists = {}
+        for r in rows:
+            tracks = _tracks_por_reglas(conn, json.loads(r["reglas"]))
+            if tracks:
+                playlists[r["nombre"]] = tracks
+        if not playlists:
+            print("No hay playlists con tracks para exportar.")
+            return 0
+        n = rekordbox_export.escribir_playlists(playlists, args.salida)
+        print(f"Exportadas {len(playlists)} playlists ({n} tracks únicos) a {args.salida}")
+        print("\nEn Rekordbox: Preferences > View > Layout: activá 'rekordbox xml';")
+        print("Preferences > Advanced > rekordbox xml: apuntá a este archivo.")
+        print("Aparece la vista 'rekordbox xml' y arrastrás las playlists a tu colección.")
+        conn.close()
+        return 0
+
     if args.nombre:
         row = conn.execute(
             "SELECT reglas FROM playlists WHERE nombre=?", (args.nombre,)).fetchone()
@@ -2277,6 +2350,8 @@ def main(argv=None):
     sp.add_argument("salida", help="Ruta del .xml a generar")
     sp.add_argument("--nombre", help="Nombre de una playlist guardada")
     sp.add_argument("--como", help="Nombre de la playlist si usás filtros directos")
+    sp.add_argument("--todas", action="store_true",
+                     help="Exportar TODAS las playlists guardadas en un solo XML")
     _add_filtros(sp)
     sp.add_argument("--db", default=DEFAULT_DB)
     sp.set_defaults(func=cmd_playlist_export)

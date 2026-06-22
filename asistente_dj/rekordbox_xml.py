@@ -23,6 +23,7 @@ class RBTrack:
     key: str = ""         # Tonality (ej. "Am")
     genero: str = ""
     sello: str = ""
+    track_id: str = ""    # TrackID de Rekordbox (clave usada en <PLAYLISTS>)
 
 
 def _location_a_ruta(loc: str) -> str:
@@ -63,5 +64,36 @@ def parse(xml_path: str):
             key=t.get("Tonality", ""),
             genero=t.get("Genre", ""),
             sello=t.get("Label", ""),
+            track_id=t.get("TrackID", ""),
         ))
     return tracks, version
+
+
+def parse_playlists(xml_path: str) -> list[dict]:
+    """Devuelve las playlists del XML: [{"nombre": ..., "track_ids_rb": [...]},...].
+    Ignora los nodos Type="0" (carpetas, solo sirven para anidar) y solo
+    devuelve los nodos Type="1" (playlists reales), con el camino de
+    carpetas en el nombre si están anidadas (ej. "Sets 2024/Warmup") para
+    evitar colisiones de nombre."""
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    playlists_root = root.find("PLAYLISTS")
+    if playlists_root is None:
+        return []
+
+    resultado = []
+
+    def _recorrer(nodo, camino):
+        for hijo in nodo.findall("NODE"):
+            nombre = hijo.get("Name", "")
+            if hijo.get("Type") == "0":
+                _recorrer(hijo, camino + [nombre] if nombre and nombre != "ROOT" else camino)
+            else:
+                track_ids = [tr.get("Key", "") for tr in hijo.findall("TRACK")]
+                nombre_completo = "/".join(camino + [nombre]) if camino else nombre
+                resultado.append({"nombre": nombre_completo, "track_ids_rb": track_ids})
+
+    raiz = playlists_root.find("NODE")
+    if raiz is not None:
+        _recorrer(raiz, [])
+    return resultado
