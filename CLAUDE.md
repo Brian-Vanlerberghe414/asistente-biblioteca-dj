@@ -96,6 +96,13 @@ python app.py
 - `rekordbox_xml.py` / `traktor_nml.py` — parsers de import de software DJ.
 - `rekordbox_export.py` — escribe XML de Rekordbox con playlists.
 - `getsongbpm.py` — cliente de la API pública GetSongBPM.
+- `itunes_cover.py` — cliente de la API pública de búsqueda de iTunes/Apple
+  Music (sin API key) para carátulas (cover art): `obtener_caratula(artista,
+  titulo, size=600)` y `obtener_caratulas_lote(tracks)`. Caché en memoria
+  por (artista, título) + throttle configurable (~20 req/min, el límite
+  documentado de Apple) para procesar lotes sin pasarse. Todavía no está
+  conectado a ningún flujo del CLI/GUI — es la pieza base para mostrar
+  carátulas más adelante (ej. panel de detalle, charts).
 - `serato_db.py` — parser binario de la base de datos de Serato (database V2).
 - `cloud_backup.py` — Módulo 3 Fase 2: backup de audio personal a Cloudflare
   R2 vía el backend (`backend/`); usa la cuenta personal del DJ
