@@ -114,10 +114,11 @@ class CamelotDelegate(QStyledItemDelegate):
         painter.setFont(font)
         fm = painter.fontMetrics()
 
-        tw = fm.horizontalAdvance(text)
+        # Ancho fijo (el del código Camelot más largo posible, "12A"/"12B")
+        # para que todos los badges midan igual, sin importar 1 o 2 dígitos.
         th = fm.height()
         ph, pv = 7, 3
-        bw = tw + ph * 2
+        bw = fm.horizontalAdvance("12A") + ph * 2
         bh = th + pv * 2
 
         rect = option.rect
@@ -214,7 +215,8 @@ class BpmDelegate(QStyledItemDelegate):
             painter.restore()
             return
 
-        font = QFont("JetBrains Mono", 12)
+        font = QFont("JetBrains Mono")
+        font.setPixelSize(12)   # mismo tamaño que el resto de la grilla (font-size: 12px)
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
         painter.setPen(QColor("#E9E9EC"))
