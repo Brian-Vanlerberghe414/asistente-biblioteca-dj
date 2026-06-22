@@ -100,6 +100,9 @@ python app.py
 - `cloud_backup.py` — Módulo 3 Fase 2: backup de audio personal a Cloudflare
   R2 vía el backend (`backend/`); usa la cuenta personal del DJ
   (`mi_email`/`mi_password`), no la cuenta de servicio.
+- `cloud_sync.py` — sincronización de género/subgénero/playlists con
+  `mi_biblioteca`/`mis_playlists` en la nube (base para Fase 3, apps
+  cliente); mismo patrón de auth que `cloud_backup.py`.
 - `biblioteca_confiable.py` — cliente de Supabase ("Biblioteca Confiable"); fuente
   prioritaria de género (ver Decisiones de diseño). Opcional y a prueba de fallos:
   si no hay credenciales o falla la red, no rompe nada y el flujo sigue por tags.
@@ -384,11 +387,43 @@ sesión 2026-06-19; Fase 1 hecha en sesión 2026-06-21, resto sin arrancar):**
     ya construido. No hay pantalla de login multi-usuario (si en el futuro
     hace falta soportar más DJs en la misma PC, hay que construirla).
 
+- **Sincronización de biblioteca personal — HECHA (sesión 2026-06-22),
+  base para la Fase 3.** Brian pidió que, cuando exista un cliente
+  Android/web/iOS, el DJ pueda editar género o crear playlists *desde ese
+  dispositivo* y que se vea en todos lados (incluida la app de escritorio).
+  Como `genero`/`subgenero`/`playlists` vivían solo en el SQLite local
+  (`biblioteca_tracks` es conocimiento *compartido* entre DJs, no la
+  organización personal de cada uno), se armó esta base:
+  - Tablas nuevas en Supabase: `mi_biblioteca` (espejo personal de
+    género/subgénero/bpm/key por usuario, clave de sync = artista+título
+    normalizados, igual que `biblioteca_confiable.py`) y `mis_playlists`
+    (igual patrón). Privadas por usuario (RLS ni con lectura abierta, como
+    `audio_personal`). `asistente_dj/supabase_setup_mi_biblioteca.sql`.
+  - Backend: `backend/routes/mi_biblioteca.py`
+    (`POST/GET /mi-biblioteca`, `POST/GET /mi-biblioteca/playlists`) —
+    resolución de conflictos **"gana el cambio más reciente"** aplicada del
+    lado del servidor (compara `actualizado_en`, no confía en que el
+    cliente nunca mande algo viejo).
+  - Local: columna `actualizado_en` nueva en `tracks` (migración suave en
+    `db.py`), se pisa solo en ediciones manuales.
+  - `asistente_dj/cloud_sync.py` (`push_track`/`pull_biblioteca`/
+    `push_playlist`/`pull_playlists`) — mismo patrón de auth que
+    `cloud_backup.py` (cuenta PERSONAL del DJ).
+  - Conectado a las ediciones existentes: `gui/track_model.py:guardar_ids`
+    y `gui/main_window.py:_on_crear_playlist` ahora también empujan el
+    cambio a la nube. Botón nuevo **"🔄 Sincronizar"** en la toolbar para
+    traer cambios hechos desde otro dispositivo.
+  - Validado end-to-end simulando una edición "desde Android" (POST directo
+    a `/mi-biblioteca/sync` sin pasar por la GUI, con género distinto): al
+    apretar "Sincronizar", el género local cambió al valor mandado por la
+    API — funciona en ambas direcciones, tracks y playlists.
+
 - **Fase 3 (sin arrancar) — Apps cliente.** Android primero (prioridad
   elegida por Brian), después web/iOS. Ya van a poder pegarle al backend de
-  `backend/` en vez de hablar directo con Supabase. Falta decidir el stack
-  (no asumir nativo/Flutter/React Native hasta hablarlo con Brian) y cómo
-  se sincroniza con la biblioteca local de cada DJ en su PC.
+  `backend/` en vez de hablar directo con Supabase, y ya tienen
+  `mi_biblioteca`/`mis_playlists` de dónde leer/escribir (ver arriba).
+  Falta decidir el stack (no asumir nativo/Flutter/React Native hasta
+  hablarlo con Brian).
 
 - Relacionado con [[project-punch-list-calidad]] y el plan de "Feedback DJ"
   ([[project-feedback-dj-beta]]): la Fase 1 ya resuelve el problema más
