@@ -1416,6 +1416,44 @@ def cmd_import_getsongbpm(args):
     return 0
 
 
+def importar_playlists_rekordbox(conn, archivo_xml, rbtracks) -> list[dict]:
+    """Lee las <PLAYLISTS> de un XML de Rekordbox y las crea/actualiza en la
+    tabla local `playlists` (reglas={"ids":[...]}), matcheando cada track
+    con el mismo criterio que el BPM/key (ruta exacta -> nombre de archivo
+    -> artista+título). Reusada por el CLI (`import-rekordbox`) y por el
+    worker de la GUI. Devuelve [{"nombre", "n_tracks", "n_sin_match"}, ...]
+    solo de las playlists que sí se importaron (con al menos 1 track)."""
+    import rekordbox_xml
+    playlists_rb = rekordbox_xml.parse_playlists(archivo_xml)
+    if not playlists_rb:
+        return []
+
+    indice = _indice_match(conn)
+    por_track_id = {t.track_id: t for t in rbtracks if t.track_id}
+    resultado = []
+    for pl in playlists_rb:
+        ids = []
+        for key in pl["track_ids_rb"]:
+            rb = por_track_id.get(key)
+            if rb is None:
+                continue
+            tid = _matchear_registro(indice, rb)
+            if tid is not None:
+                ids.append(tid)
+        if not ids:
+            continue
+        conn.execute(
+            "INSERT INTO playlists(nombre, reglas) VALUES(?, ?) "
+            "ON CONFLICT(nombre) DO UPDATE SET reglas=excluded.reglas",
+            (pl["nombre"], json.dumps({"ids": ids})))
+        resultado.append({
+            "nombre": pl["nombre"], "n_tracks": len(ids),
+            "n_sin_match": len(pl["track_ids_rb"]) - len(ids),
+        })
+    conn.commit()
+    return resultado
+
+
 def cmd_import_rekordbox(args):
     """Importa BPM y key EXACTOS desde un export XML de Rekordbox."""
     _print_header()
@@ -1440,34 +1478,12 @@ def cmd_import_rekordbox(args):
     print("\n(Los BPM de Rekordbox son ahora la fuente exacta; el análisis de "
           "audio no los sobrescribe.)")
 
-    playlists_rb = rekordbox_xml.parse_playlists(args.xml)
-    if playlists_rb:
-        indice = _indice_match(conn)
-        por_track_id = {t.track_id: t for t in rbtracks if t.track_id}
-        n_importadas = 0
-        print(f"\nPlaylists en el XML: {len(playlists_rb)}")
-        for pl in playlists_rb:
-            ids = []
-            for key in pl["track_ids_rb"]:
-                rb = por_track_id.get(key)
-                if rb is None:
-                    continue
-                tid = _matchear_registro(indice, rb)
-                if tid is not None:
-                    ids.append(tid)
-            if not ids:
-                print(f"  • {pl['nombre']}: 0 tracks con match, no se importa")
-                continue
-            conn.execute(
-                "INSERT INTO playlists(nombre, reglas) VALUES(?, ?) "
-                "ON CONFLICT(nombre) DO UPDATE SET reglas=excluded.reglas",
-                (pl["nombre"], json.dumps({"ids": ids})))
-            n_importadas += 1
-            faltantes = len(pl["track_ids_rb"]) - len(ids)
-            extra = f" ({faltantes} sin match)" if faltantes else ""
-            print(f"  • {pl['nombre']}: {len(ids)} tracks{extra}")
-        conn.commit()
-        print(f"\nPlaylists importadas: {n_importadas}")
+    importadas = importar_playlists_rekordbox(conn, args.xml, rbtracks)
+    if importadas:
+        print(f"\nPlaylists importadas: {len(importadas)}")
+        for pl in importadas:
+            extra = f" ({pl['n_sin_match']} sin match)" if pl["n_sin_match"] else ""
+            print(f"  • {pl['nombre']}: {pl['n_tracks']} tracks{extra}")
 
     conn.close()
     return 0

@@ -134,11 +134,20 @@ class DjImportWorker(QThread):
                 )
             conn = db_mod.connect(self.db_path)
             act, sin_match, sin_bpm = _match_y_actualizar(conn, registros, self.fuente)
+
+            playlists_importadas = []
+            if self.fuente == "rekordbox":
+                from cli import importar_playlists_rekordbox
+                self.progreso.emit("Importando playlists…")
+                playlists_importadas = importar_playlists_rekordbox(
+                    conn, self.archivo, registros
+                )
             conn.close()
             self.terminado.emit({
                 "actualizados": act,
                 "sin_match": sin_match,
                 "sin_bpm": sin_bpm,
+                "playlists": playlists_importadas,
             })
         except Exception as e:
             self.terminado.emit({"error": str(e)})

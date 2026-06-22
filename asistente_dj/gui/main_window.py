@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
         tb.setMovable(False)
         tb.addAction("📂 Escanear", self._on_scan)
         tb.addAction("📦 Archivar", self._on_archive)
-        tb.addAction("🎛 Afinar BPM/KEY", self._on_afinar_bpm)
+        tb.addAction("🎛 Importar Rekordbox/Traktor", self._on_afinar_bpm)
         tb.addSeparator()
         tb.addAction("🗑 Eliminar", self._on_eliminar)
         tb.addAction("➕ Playlist", self._on_crear_playlist)
@@ -131,6 +131,31 @@ class MainWindow(QMainWindow):
             self._lanzar(AnalyzeWorker(self._db_path))
             return
 
+        # Import de Rekordbox/Traktor → mostrar resumen y refrescar playlists
+        if isinstance(self._worker, DjImportWorker) and isinstance(resultado, dict):
+            self._set_toolbar(True)
+            playlists = resultado.get("playlists") or []
+            if playlists:
+                self._org.recargar_playlists()
+            partes = [
+                f"BPM/key actualizados: {resultado.get('actualizados', 0)}",
+                f"sin match: {resultado.get('sin_match', 0)}",
+            ]
+            if playlists:
+                partes.append(f"playlists importadas: {len(playlists)}")
+            self.statusBar().showMessage("Listo — " + "  ".join(partes))
+            if playlists:
+                detalle = "\n".join(
+                    f"• {p['nombre']}: {p['n_tracks']} tracks"
+                    + (f" ({p['n_sin_match']} sin match)" if p["n_sin_match"] else "")
+                    for p in playlists
+                )
+                QMessageBox.information(
+                    self, "Playlists importadas",
+                    f"Se importaron {len(playlists)} playlist(s):\n\n{detalle}"
+                )
+            return
+
         # Cualquier otro worker → rehabilitar toolbar y mostrar resultado
         self._set_toolbar(True)
         if isinstance(resultado, dict):
@@ -147,11 +172,12 @@ class MainWindow(QMainWindow):
                 action.setEnabled(enabled)
 
     def _on_afinar_bpm(self):
-        """Importa BPM/Key exactos desde Rekordbox o Traktor."""
+        """Importa BPM/Key (y, desde Rekordbox, también las playlists) desde
+        Rekordbox o Traktor."""
         from PySide6.QtWidgets import QInputDialog
         opciones = ["Rekordbox", "Traktor"]
         software, ok = QInputDialog.getItem(
-            self, "Afinar BPM/KEY",
+            self, "Importar Rekordbox/Traktor",
             "¿Con qué software tenés analizada tu biblioteca?",
             opciones, 0, False,
         )
@@ -167,28 +193,31 @@ class MainWindow(QMainWindow):
         from gui.atmospheric_dialog import AtmosphericDialog
 
         dlg = AtmosphericDialog(_asset("dj-booth-festival.jpg"), "#00E5FF", self)
-        dlg.setWindowTitle("Afinar BPM / KEY — Rekordbox")
+        dlg.setWindowTitle("Importar Rekordbox")
         dlg.setMinimumWidth(580)
         dlg.setMinimumHeight(380)
         lay = dlg._content_layout
 
         # ── Eyebrow ──────────────────────────────────────────────────────────
-        eyebrow = QLabel("● REKORDBOX · IMPORTAR ANÁLISIS")
+        eyebrow = QLabel("● REKORDBOX · IMPORTAR ANÁLISIS Y PLAYLISTS")
         eyebrow.setStyleSheet(
             "color: #00E5FF; font-size: 10px; font-weight: 600; letter-spacing: 1.5px;"
         )
         lay.addWidget(eyebrow)
 
         # ── Título ────────────────────────────────────────────────────────────
-        titulo = QLabel("Afinar BPM / KEY")
+        titulo = QLabel("Importar Rekordbox")
         titulo.setStyleSheet(
             "color: #E9E9EC; font-size: 24px; font-weight: 700; letter-spacing: -0.4px;"
         )
         lay.addWidget(titulo)
 
         subtitulo = QLabel(
-            "Exportá tu colección desde Rekordbox (Archivo → Exportar colección en formato XML)\n"
-            "y seleccioná el archivo .xml para actualizar BPM y Key con los datos exactos de Rekordbox."
+            "Exportá tu colección desde Rekordbox (Archivo → Exportar colección en formato XML,\n"
+            "con tus playlists ya armadas) y seleccioná el archivo .xml. Se va a actualizar\n"
+            "BPM y Key con los datos exactos de Rekordbox, y se van a crear tus playlists acá\n"
+            "(si después archivás la biblioteca, podés re-exportarlas a Rekordbox con las\n"
+            "rutas ya corregidas desde 'playlist-export')."
         )
         subtitulo.setStyleSheet("color: #9A9CA1; font-size: 12px;")
         subtitulo.setWordWrap(True)
@@ -252,7 +281,7 @@ class MainWindow(QMainWindow):
 
         btns = QHBoxLayout()
         btn_cancel = QPushButton("Cancelar")
-        btn_ok = QPushButton("Afinar BPM/KEY")
+        btn_ok = QPushButton("Importar")
         btn_ok.setDefault(True)
         btn_ok.setStyleSheet(
             "QPushButton { background: rgba(0,229,255,0.15); border: 1px solid rgba(0,229,255,0.60);"
