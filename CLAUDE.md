@@ -526,6 +526,33 @@ taxonomía Beatport (`genre_profiles.py`).
 - Multinúcleo: los workers (analyze_file, calcular_worker) son funciones de módulo
   (picklables); `main()` está guardado por `if __name__ == "__main__"`.
 
+## Tests automatizados (arrancado sesión 2026-06-23)
+
+`pip install -r asistente_dj/requirements-dev.txt` (solo `pytest`, no hace
+falta para correr la app). Corren desde `asistente_dj/`:
+
+```
+python -m pytest tests/ -v
+```
+
+24 tests, todos unitarios/sin red (~0.5s en total) — cubren
+`classifier.py` (incluye un test de consistencia que recorre TODO
+`GENRE_ALIASES` contra `GENRE_TREE`, así una reorganización del árbol que
+deje un alias roto se detecta sola, como hubiera pasado con el bug de
+"Melodic House/Techno" de esta misma sesión), `getsongbpm.py` (Camelot,
+limpieza de título/artista), `rekordbox_export.py` (preferencia de
+`ruta_destino`, no duplicar tracks entre playlists, orden preservado), y
+`scanner.scan()` de punta a punta contra una SQLite temporal con los MP3
+de prueba de `tests/make_test_files.py` (monkeypatcheando
+`biblioteca_confiable.buscar` para no tocar la Biblioteca Confiable real
+ni depender de red). `tests/conftest.py` agrega `asistente_dj/` al
+`sys.path` para poder importar los módulos del proyecto directo.
+
+**Todavía sin cubrir** (próximos candidatos, ver crítica de calidad):
+mocks de red para `biblioteca_confiable.py`/`itunes_cover.py`, tests de
+`archiver.py`/`db.py` migraciones, y cualquier test de GUI (más caro,
+queda para después).
+
 ## Notas / gotchas
 
 - El proyecto está en una carpeta de OneDrive. En Claude Code (que edita archivos
