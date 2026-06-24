@@ -161,6 +161,19 @@ def _camelot_compatibles(cam: str) -> set[str]:
     return otras
 
 
+class _SoloPintarCheckboxDelegate(QStyledItemDelegate):
+    """Pinta el checkbox de selección, pero no lo togglea él mismo: ese
+    manejo nativo de Qt en QStyledItemDelegate.editorEvent solo dispara una
+    vez la celda ya es la "actual" (no en el primer click que la enfoca),
+    lo cual competía con el toggle explícito en _on_click — el primer click
+    seleccionaba bien, pero el segundo (para destildar) quedaba anulado por
+    el doble toggle. Con editorEvent inerte, el único que togglea es
+    _on_click, siempre un solo toggle por click real."""
+
+    def editorEvent(self, event, model, option, index):
+        return False
+
+
 # ──────────────────────────────────────────────────────── player ──────────────
 
 class PlayerWidget(QFrame):
@@ -801,7 +814,7 @@ class OrganizadorWidget(QWidget):
         # Columna 0: modo dual Play / Selección (checkbox)
         self._delegate_play = PlayButtonDelegate(self._tabla)
         self._delegate_play.play_requested.connect(self._on_play_clicked)
-        self._delegate_checkbox = QStyledItemDelegate(self._tabla)
+        self._delegate_checkbox = _SoloPintarCheckboxDelegate(self._tabla)
         self._tabla.setItemDelegateForColumn(COL_CHECK, self._delegate_play)
         centro_lay.addWidget(self._tabla, stretch=1)
 
