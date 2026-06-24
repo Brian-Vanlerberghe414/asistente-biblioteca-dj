@@ -965,6 +965,14 @@ class OrganizadorWidget(QWidget):
         """Single click: actualiza el panel de detalle; en Género/Subgénero
         abre el editor inline directamente."""
         if proxy_index.column() == COL_CHECK:
+            if self._btn_seleccionar.isChecked():
+                # En modo selección, el delegate es un QStyledItemDelegate
+                # genérico: el click solo en algunas plataformas alterna el
+                # checkbox sin ayuda — lo hacemos explícito para que
+                # funcione siempre, en vez de depender de eso.
+                actual = proxy_index.data(Qt.CheckStateRole)
+                nuevo = Qt.Unchecked if actual == Qt.Checked else Qt.Checked
+                self._proxy.setData(proxy_index, nuevo, Qt.CheckStateRole)
             return
         row = proxy_index.row()
         src = self._proxy.mapToSource(self._proxy.index(row, 0))
