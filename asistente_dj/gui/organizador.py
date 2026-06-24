@@ -1145,6 +1145,59 @@ class OrganizadorWidget(QWidget):
     def ids_seleccionados(self) -> list[int]:
         return self._model.ids_seleccionados()
 
+    def editar_genero_en_lote(self):
+        """Cambio masivo de género/subgénero para todos los tracks tildados
+        en modo Selección — útil para corregir muchos tracks de una sola
+        vez en vez de uno por uno. Queda como cambio pendiente (igual que
+        una edición inline): el DJ revisa y confirma con "Guardar"."""
+        from PySide6.QtWidgets import QMessageBox
+        ids = self._model.ids_seleccionados()
+        if not ids:
+            QMessageBox.information(
+                self, "Género en lote",
+                "No hay tracks seleccionados.\n"
+                "Apretá 'Seleccionar' y tildá los tracks que querés cambiar."
+            )
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Cambiar género — {len(ids)} track(s)")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(f"Se va a aplicar a los {len(ids)} tracks seleccionados:"))
+
+        combo_genero = QComboBox()
+        combo_genero.addItem("")
+        for g in GENRE_TREE:
+            combo_genero.addItem(g)
+        combo_subgenero = QComboBox()
+        combo_subgenero.addItem("")
+
+        def _repoblar_subgenero():
+            combo_subgenero.clear()
+            combo_subgenero.addItem("")
+            for sub in GENRE_TREE.get(combo_genero.currentText(), []):
+                combo_subgenero.addItem(sub)
+        combo_genero.currentTextChanged.connect(_repoblar_subgenero)
+
+        lay.addWidget(QLabel("Género:"))
+        lay.addWidget(combo_genero)
+        lay.addWidget(QLabel("Subgénero (opcional):"))
+        lay.addWidget(combo_subgenero)
+
+        botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        botones.accepted.connect(dlg.accept)
+        botones.rejected.connect(dlg.reject)
+        lay.addWidget(botones)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        genero = combo_genero.currentText().strip()
+        if not genero:
+            QMessageBox.warning(self, "Género en lote", "Elegí un género.")
+            return
+        subgenero = combo_subgenero.currentText().strip() or None
+        self._model.marcar_genero_lote(ids, genero, subgenero)
+
     def eliminar_seleccionados(self, borrar_disco: bool = False):
         ids = self._model.ids_seleccionados()
         if not ids:

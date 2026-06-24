@@ -111,6 +111,26 @@ class TrackModel(QAbstractTableModel):
                 self.dataChanged.emit(idx, idx, [Qt.DisplayRole])
                 return
 
+    def marcar_genero_lote(self, ids: list[int], genero: str | None,
+                            subgenero: str | None) -> int:
+        """Aplica género/subgénero a varios tracks de una sola vez (edición
+        masiva). No escribe en la base todavía — queda pendiente, igual que
+        una edición inline de una sola celda (fila en amarillo, aparece la
+        barra Guardar/Cancelar). Devuelve cuántos tracks se marcaron."""
+        id_a_fila = {f.get("id"): i for i, f in enumerate(self._filas)}
+        marcados = 0
+        for tid in ids:
+            fila_idx = id_a_fila.get(tid)
+            if fila_idx is None:
+                continue
+            idx_genero = self.index(fila_idx, COL_GENERO)
+            self.setData(idx_genero, genero or "", Qt.EditRole)
+            if subgenero:
+                idx_subgenero = self.index(fila_idx, COL_SUBGENERO)
+                self.setData(idx_subgenero, subgenero, Qt.EditRole)
+            marcados += 1
+        return marcados
+
     def fila(self, idx: int) -> dict:
         return self._filas[idx]
 
