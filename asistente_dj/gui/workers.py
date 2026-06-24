@@ -341,3 +341,33 @@ class CoverFillWorker(QThread):
         })
 
 
+class SyncWorker(QThread):
+    """Trae cambios de género/playlists hechos desde otro dispositivo (ej.
+    Android, más adelante) — corre en background, sin botón ni popups, al
+    arrancar la app y cada cierto intervalo (ver MainWindow). Silenciosa:
+    si no hay cuenta personal configurada o falla la red, simplemente no
+    hace nada (no interrumpe al DJ)."""
+    terminado = Signal(dict)
+
+    def __init__(self, db_path: str):
+        super().__init__()
+        self.db_path = db_path
+
+    def run(self):
+        proj = os.path.join(os.path.dirname(__file__), "..")
+        if proj not in sys.path:
+            sys.path.insert(0, proj)
+        import cloud_backup
+        if not cloud_backup.esta_configurado():
+            self.terminado.emit({"tracks": 0, "playlists": 0})
+            return
+
+        import cloud_sync
+        import db as db_mod
+        conn = db_mod.connect(self.db_path)
+        n_tracks = cloud_sync.pull_biblioteca(conn)
+        n_playlists = cloud_sync.pull_playlists(conn)
+        conn.close()
+        self.terminado.emit({"tracks": n_tracks, "playlists": n_playlists})
+
+

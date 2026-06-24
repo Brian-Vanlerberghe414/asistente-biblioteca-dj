@@ -86,9 +86,21 @@ def sincronizar(tracks: list[TrackSync],
 
 
 @router.get("")
-def mi_biblioteca(usuario: UsuarioActual = Depends(obtener_usuario_actual)):
+def mi_biblioteca(since: Optional[str] = None, solo_ids: bool = False,
+                   usuario: UsuarioActual = Depends(obtener_usuario_actual)):
+    """`since` (ISO 8601, opcional): si se manda, solo devuelve filas con
+    `actualizado_en` posterior — permite sincronizaciones incrementales en
+    vez de bajar toda la biblioteca personal en cada corrida.
+
+    `solo_ids`: para cuando lo único que hace falta es traducir ids de
+    playlist a artista/título (push/pull de playlists) — evita bajar todas
+    las columnas (bpm, key, género, etc.) cuando no hacen falta."""
     cliente = cliente_para_usuario(usuario.jwt)
-    resp = cliente.table(_TABLA).select("*").execute()
+    campos = "id, artista_norm, titulo_norm" if solo_ids else "*"
+    q = cliente.table(_TABLA).select(campos)
+    if since:
+        q = q.gt("actualizado_en", since)
+    resp = q.execute()
     return resp.data
 
 
@@ -117,7 +129,12 @@ def sincronizar_playlist(playlist: PlaylistSync,
 
 
 @router.get("/playlists")
-def mis_playlists(usuario: UsuarioActual = Depends(obtener_usuario_actual)):
+def mis_playlists(since: Optional[str] = None,
+                   usuario: UsuarioActual = Depends(obtener_usuario_actual)):
+    """Mismo `since` incremental que `GET /mi-biblioteca`."""
     cliente = cliente_para_usuario(usuario.jwt)
-    resp = cliente.table(_TABLA_PLAYLISTS).select("*").execute()
+    q = cliente.table(_TABLA_PLAYLISTS).select("*")
+    if since:
+        q = q.gt("actualizado_en", since)
+    resp = q.execute()
     return resp.data

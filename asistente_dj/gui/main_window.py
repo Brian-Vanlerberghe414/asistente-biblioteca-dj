@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPushButton, QTabWidget, QToolBar, QVBoxLayout, QCheckBox, QFrame,
 )
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QFont
 
 _PROJ = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
@@ -26,8 +27,14 @@ from gui.organizador import OrganizadorWidget
 from gui.playlists_widget import PlaylistsWidget
 from gui.workers import (
     AnalyzeWorker, ArchiveWorker, BackupNubeWorker, CoverFillWorker,
-    DjImportWorker, ScanWorker,
+    DjImportWorker, ScanWorker, SyncWorker,
 )
+
+# Cada cuánto se sincroniza sola con la nube mientras la app está abierta
+# (además de una vez al arrancar). Incremental (ver cloud_sync.py: pide
+# solo lo que cambió desde la última corrida), así que correrla seguido
+# es liviano.
+_INTERVALO_SYNC_MS = 20 * 60 * 1000
 
 
 class MainWindow(QMainWindow):
@@ -50,7 +57,6 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction("🌐 BD Online", self._on_bd_online)
         tb.addAction("☁ Backup en la nube", self._on_backup_nube)
-        tb.addAction("🔄 Sincronizar", self._on_sincronizar)
         tb.addAction("⚙ Configurar", self._on_configurar)
 
         # Tabs
@@ -66,9 +72,18 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Listo")
 
         self._worker = None
+        self._sync_worker = None
 
         # Limpieza automática al arrancar
         self._auto_limpiar()
+
+        # Sincronización con la nube: una vez al arrancar y cada
+        # _INTERVALO_SYNC_MS mientras la app esté abierta — en background,
+        # sin bloquear nada (ver _iniciar_sync).
+        self._iniciar_sync()
+        self._timer_sync = QTimer(self)
+        self._timer_sync.timeout.connect(self._iniciar_sync)
+        self._timer_sync.start(_INTERVALO_SYNC_MS)
 
     # --------------------------------------------------------- limpieza auto
     def _auto_limpiar(self):
@@ -541,32 +556,25 @@ class MainWindow(QMainWindow):
 
         self._lanzar(BackupNubeWorker(self._db_path, ids))
 
-    def _on_sincronizar(self):
-        """Trae cambios de género/playlists hechos desde otro dispositivo
-        (ej. Android, más adelante) y los aplica localmente. Base de la
-        Fase 3 — apps cliente, gana el cambio más reciente."""
-        import cloud_backup
-        if not cloud_backup.esta_configurado():
-            QMessageBox.information(
-                self, "Sincronizar",
-                "Todavía no tenés una cuenta personal configurada. "
-                "Usá primero 'Backup en la nube' para crearla."
-            )
+    def _iniciar_sync(self):
+        """Dispara la sincronización con la nube en background (sin botón,
+        sin popups): al arrancar la app y cada _INTERVALO_SYNC_MS. Si ya
+        hay una corrida en curso, no superpone otra."""
+        if self._sync_worker is not None and self._sync_worker.isRunning():
             return
+        self._sync_worker = SyncWorker(self._db_path)
+        self._sync_worker.terminado.connect(self._on_sync_terminado)
+        self._sync_worker.start()
 
-        import cloud_sync
-        import db as db_mod
-        conn = db_mod.connect(self._db_path)
-        n_tracks = cloud_sync.pull_biblioteca(conn)
-        n_playlists = cloud_sync.pull_playlists(conn)
-        conn.close()
-
+    def _on_sync_terminado(self, resultado: dict):
+        n_tracks = resultado.get("tracks", 0)
+        n_playlists = resultado.get("playlists", 0)
         if n_tracks or n_playlists:
             self._org.recargar()
             self._playlists.recargar()
-        self.statusBar().showMessage(
-            f"Sincronizado: {n_tracks} track(s), {n_playlists} playlist(s) actualizadas."
-        )
+            self.statusBar().showMessage(
+                f"🔄 Sincronizado: {n_tracks} track(s), {n_playlists} playlist(s) actualizadas."
+            )
 
     def _on_bd_online(self):
         """Consulta tracks_canonical para los tracks visibles y muestra sugerencias."""

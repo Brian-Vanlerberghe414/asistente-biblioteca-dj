@@ -19,8 +19,11 @@ from typing import Optional
 import requests
 
 import cloud_backup
+import settings
 
 BACKEND_URL = cloud_backup.BACKEND_URL
+
+_CLAVE_MARCA = "sync_ultima_marca"
 
 
 def _norm(texto: str) -> str:
@@ -77,12 +80,20 @@ def pull_biblioteca(conn) -> int:
     nuevos que lo que hay ahí (ej. una edición hecha desde Android). Solo
     actualiza tracks que ya existen localmente (matchea por artista/título
     normalizados) — un track que todavía no se escaneó en este dispositivo
-    no tiene dónde aplicarse. Devuelve cuántos tracks se actualizaron."""
+    no tiene dónde aplicarse. Devuelve cuántos tracks se actualizaron.
+
+    Incremental: solo pide a la nube lo que cambió desde la última corrida
+    exitosa (`since`), guardado en `asistente_config.json` — evita bajar
+    toda la biblioteca personal en cada sincronización periódica."""
     headers = _headers()
     if not headers:
         return 0
+    marca_previa = settings.get(_CLAVE_MARCA)
+    params = {"since": marca_previa} if marca_previa else {}
     try:
-        resp = requests.get(f"{BACKEND_URL}/mi-biblioteca", headers=headers, timeout=15)
+        resp = requests.get(
+            f"{BACKEND_URL}/mi-biblioteca", headers=headers, params=params, timeout=15
+        )
         resp.raise_for_status()
         filas_nube = resp.json()
     except Exception:
@@ -94,7 +105,10 @@ def pull_biblioteca(conn) -> int:
     indice = {(_norm(r["artista"] or ""), _norm(r["titulo"] or "")): r for r in locales}
 
     actualizados = 0
+    marca_nueva = marca_previa or ""
     for fila in filas_nube:
+        if fila["actualizado_en"] > marca_nueva:
+            marca_nueva = fila["actualizado_en"]
         clave = (fila["artista_norm"], fila["titulo_norm"])
         local = indice.get(clave)
         if not local:
@@ -110,6 +124,8 @@ def pull_biblioteca(conn) -> int:
         actualizados += 1
     if actualizados:
         conn.commit()
+    if marca_nueva != (marca_previa or ""):
+        settings.set_(_CLAVE_MARCA, marca_nueva)
     return actualizados
 
 
@@ -129,7 +145,10 @@ def push_playlist(nombre: str, ids_locales: list[int], conn) -> bool:
     claves = [(_norm(r["artista"] or ""), _norm(r["titulo"] or "")) for r in filas]
 
     try:
-        resp = requests.get(f"{BACKEND_URL}/mi-biblioteca", headers=headers, timeout=15)
+        resp = requests.get(
+            f"{BACKEND_URL}/mi-biblioteca", headers=headers,
+            params={"solo_ids": "true"}, timeout=15
+        )
         resp.raise_for_status()
         nube = resp.json()
     except Exception:
@@ -151,24 +170,46 @@ def push_playlist(nombre: str, ids_locales: list[int], conn) -> bool:
         return False
 
 
+_CLAVE_MARCA_PLAYLISTS = "sync_ultima_marca_playlists"
+
+
 def pull_playlists(conn) -> int:
     """Trae las playlists de la nube (ej. creadas desde Android) y las
     aplica localmente, traduciendo los ids de `mi_biblioteca` a ids locales
-    por artista/título. Devuelve cuántas playlists se aplicaron."""
+    por artista/título. Devuelve cuántas playlists se aplicaron.
+
+    Las playlists en sí se piden de forma incremental (`since`, marca
+    propia); el mapeo id→artista/título de `mi_biblioteca` necesita
+    traerse completo siempre (una playlist puede referenciar un track que
+    no cambió hace tiempo), pero pesa poco porque solo pide esas 3 columnas
+    (`solo_ids`)."""
     headers = _headers()
     if not headers:
         return 0
+    marca_previa = settings.get(_CLAVE_MARCA_PLAYLISTS)
+    params = {"since": marca_previa} if marca_previa else {}
     try:
-        resp = requests.get(f"{BACKEND_URL}/mi-biblioteca", headers=headers, timeout=15)
+        resp = requests.get(
+            f"{BACKEND_URL}/mi-biblioteca", headers=headers,
+            params={"solo_ids": "true"}, timeout=15
+        )
         resp.raise_for_status()
         nube_tracks = resp.json()
-        resp2 = requests.get(f"{BACKEND_URL}/mi-biblioteca/playlists", headers=headers, timeout=15)
+        resp2 = requests.get(
+            f"{BACKEND_URL}/mi-biblioteca/playlists", headers=headers,
+            params=params, timeout=15
+        )
         resp2.raise_for_status()
         nube_playlists = resp2.json()
     except Exception:
         return 0
     if not nube_playlists:
         return 0
+
+    marca_nueva = marca_previa or ""
+    for pl in nube_playlists:
+        if pl["actualizado_en"] > marca_nueva:
+            marca_nueva = pl["actualizado_en"]
 
     id_nube_a_clave = {f["id"]: (f["artista_norm"], f["titulo_norm"]) for f in nube_tracks}
     locales = conn.execute("SELECT id, artista, titulo FROM tracks").fetchall()
@@ -190,4 +231,6 @@ def pull_playlists(conn) -> int:
         aplicadas += 1
     if aplicadas:
         conn.commit()
+    if marca_nueva != (marca_previa or ""):
+        settings.set_(_CLAVE_MARCA_PLAYLISTS, marca_nueva)
     return aplicadas

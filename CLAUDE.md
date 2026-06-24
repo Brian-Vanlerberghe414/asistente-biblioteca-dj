@@ -492,12 +492,27 @@ sesión 2026-06-19; Fase 1 hecha en sesión 2026-06-21, resto sin arrancar):**
     `cloud_backup.py` (cuenta PERSONAL del DJ).
   - Conectado a las ediciones existentes: `gui/track_model.py:guardar_ids`
     y `gui/main_window.py:_on_crear_playlist` ahora también empujan el
-    cambio a la nube. Botón nuevo **"🔄 Sincronizar"** en la toolbar para
-    traer cambios hechos desde otro dispositivo.
+    cambio a la nube.
   - Validado end-to-end simulando una edición "desde Android" (POST directo
     a `/mi-biblioteca/sync` sin pasar por la GUI, con género distinto): al
-    apretar "Sincronizar", el género local cambió al valor mandado por la
+    sincronizar, el género local cambió al valor mandado por la
     API — funciona en ambas direcciones, tracks y playlists.
+  - **Sincronización automática, sin botón (sesión 2026-06-23)**: se sacó
+    el botón "🔄 Sincronizar" de la toolbar — `SyncWorker` (`gui/workers.py`)
+    corre la misma lógica en background, sola, una vez al arrancar la app y
+    cada 20 minutos mientras está abierta (`MainWindow._iniciar_sync`,
+    `QTimer`). Sin popups: si no hay cuenta personal configurada o falla la
+    red, no hace nada; solo actualiza la barra de estado si trajo cambios
+    reales. **Incremental** para que correrla seguido sea liviano: el
+    backend (`GET /mi-biblioteca`, `GET /mi-biblioteca/playlists`) acepta
+    `?since=<ISO 8601>` y devuelve solo filas con `actualizado_en` más
+    nuevo; `cloud_sync.py` guarda la marca de la última corrida exitosa en
+    `asistente_config.json` (`sync_ultima_marca`/`sync_ultima_marca_playlists`)
+    y la manda en la siguiente. El lookup id→artista/título que necesitan
+    `push_playlist`/`pull_playlists` para traducir ids de playlist sigue
+    pidiendo la tabla completa (no puede ser incremental, una playlist
+    puede referenciar un track viejo), pero usa `?solo_ids=true` para traer
+    solo 3 columnas en vez de todas.
 
 - **Fase 3 (sin arrancar) — Apps cliente.** Android primero (prioridad
   elegida por Brian), después web/iOS. Ya van a poder pegarle al backend de
