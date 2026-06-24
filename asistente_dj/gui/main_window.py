@@ -689,6 +689,19 @@ class MainWindow(QMainWindow):
         uid_lbl.setStyleSheet("color: gray; font-size: 11px;")
         form.addRow("Tu DJ UID (anónimo):", uid_lbl)
 
+        from PySide6.QtWidgets import QComboBox
+        combo_reproductor = QComboBox()
+        combo_reproductor.addItem("YouTube", "youtube")
+        combo_reproductor.addItem("Spotify", "spotify")
+        actual = cfg.get("reproductor_preferido", "youtube")
+        idx = combo_reproductor.findData(actual)
+        combo_reproductor.setCurrentIndex(idx if idx >= 0 else 0)
+        combo_reproductor.setToolTip(
+            "En la pestaña Charts, el track #1 de cada chart se precarga "
+            "solo con este servicio, para que esté listo al instante."
+        )
+        form.addRow("Reproductor preferido (Charts):", combo_reproductor)
+
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
@@ -701,6 +714,7 @@ class MainWindow(QMainWindow):
                 cfg.set_("supabase_key", key_edit.text().strip())
             if svc_edit.text().strip():
                 cfg.set_("supabase_service_key", svc_edit.text().strip())
+            cfg.set_("reproductor_preferido", combo_reproductor.currentData())
             QMessageBox.information(self, "Configuración", "Guardado correctamente.")
 
     def closeEvent(self, event):

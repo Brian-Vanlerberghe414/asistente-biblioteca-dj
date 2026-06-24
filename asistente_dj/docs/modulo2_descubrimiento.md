@@ -79,6 +79,40 @@ python cli.py conseguir agregar|listar|marcar|quitar # lista de "para conseguir"
   (sello Sweat It Out/Sony) tiene TODOS sus candidatos de YouTube con embed
   deshabilitado por Content ID — ahí el botón de Spotify es la única opción
   con preview, y funciona bien.
+- **Barra lateral, precarga del track #1 y reproducción continua (sesión
+  2026-06-23)**: la pestaña Charts pasó de un `QComboBox` arriba a una
+  barra lateral izquierda (`QListWidget`, igual look and feel que la
+  navegación de Biblioteca) — un ítem por chart/slug, sin jerarquía
+  artificial porque los slugs de Beatport hoy son una lista plana.
+  - **Precarga del track #1**: nueva preferencia en Configuración
+    ("Reproductor preferido", YouTube o Spotify, clave
+    `reproductor_preferido` en `settings.py`) — cada vez que el DJ entra a
+    un chart, se busca en background (silencioso, sin tocar el preview)
+    el track #1 con ese servicio y se guarda en
+    `ChartsWidget._cache_track1` (clave=`genero_slug`). Si el DJ después
+    clickea el botón de ESE servicio sobre la fila #1, sale del cache
+    (instantáneo, sin el texto "Buscando…"); cualquier otra combinación
+    (otra fila, otro servicio, cache todavía no listo) busca como antes.
+  - **Reproducción continua — solo YouTube**: el embed de YouTube ya
+    usaba la API real del reproductor (`YT.Player`/`loadVideoById`, para
+    probar candidatos si uno no permite embeber); se le agregó
+    `onStateChange` + un puente `QWebChannel` (`_PuenteYoutube`, clase
+    nueva en `charts_widget.py`) que avisa a Python cuándo un track
+    empieza (`PLAYING`) y cuándo termina (`ENDED`). Al empezar, Python
+    precarga en background los candidatos del SIGUIENTE track del chart
+    (`_cache_siguiente`, un solo slot); al terminar, si ya están listos,
+    llama `player.loadVideoById(...)` vía `runJavaScript` — continúa sin
+    recargar el iframe — y si no, espera a que la búsqueda en curso
+    responda. La fila seleccionada en la tabla sigue al track que está
+    sonando. Si no hay siguiente track (fin del chart), no rompe nada,
+    solo deja de avanzar.
+  - **Por qué Spotify no tiene continuidad**: su embed hoy es un
+    `<iframe>` de oEmbed plano, sin ninguna API de eventos — conseguir lo
+    mismo ahí requeriría migrar a la API de iframe propia de Spotify
+    (tarea aparte, no hecha). Sin Premium logueado el preview de Spotify
+    dura 30s por track de todas formas. La precarga del track #1 SÍ
+    funciona para Spotify si es el preferido, pero ahí termina — sin
+    auto-avance al track siguiente.
 - **Módulo 2 completo:** charts Beatport (público→API), seguimiento nuevo
   ingreso/salida, lista de pendientes, exportar a texto. No empezado.
 - **Beatport API**: pedir credenciales OAuth (uso no comercial) para género/

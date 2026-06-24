@@ -11,11 +11,13 @@ import os
 import sys
 from datetime import date
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QUrl
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, QUrl, Slot
 from PySide6.QtGui import QColor
+from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel,
-    QMessageBox, QPushButton, QSplitter, QTableView, QVBoxLayout, QWidget,
+    QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QListWidget,
+    QListWidgetItem, QMessageBox, QPushButton, QSplitter, QTableView,
+    QVBoxLayout, QWidget,
 )
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -26,6 +28,7 @@ if _PROJ not in sys.path:
 
 import db as db_mod
 import charts_confiable
+import settings
 from gui.workers import YoutubeSearchWorker, SpotifySearchWorker
 from gui import local_preview_server
 
@@ -165,6 +168,23 @@ class ChartsModel(QAbstractTableModel):
         return None
 
 
+class _PuenteYoutube(QObject):
+    """Puente JS↔Python (QWebChannel) para que el player de YouTube avise
+    cuándo empieza/termina un track, sin recargar el iframe entero."""
+
+    def __init__(self, widget: "ChartsWidget"):
+        super().__init__(widget)
+        self._widget = widget
+
+    @Slot()
+    def track_empezo(self):
+        self._widget._on_yt_track_empezo()
+
+    @Slot()
+    def track_terminado(self):
+        self._widget._on_yt_track_terminado()
+
+
 class ChartsWidget(QWidget):
     """Tab de Charts: Top 100 global/por género, novedades resaltadas y
     botón para agregar un track a la lista de 'para conseguir'."""
@@ -175,20 +195,39 @@ class ChartsWidget(QWidget):
         self._model = ChartsModel(self)
         self._yt_worker: YoutubeSearchWorker | None = None
         self._spotify_worker: SpotifySearchWorker | None = None
+        # Precarga del track #1 de cada chart (clave=genero_slug), con el
+        # servicio preferido del DJ (ver Configuración → "Reproductor
+        # preferido"). Silenciosa: no toca el preview, solo evita la espera
+        # de la búsqueda cuando el DJ termina eligiendo escuchar esa fila.
+        self._cache_track1: dict[str, object] = {}
+        self._precarga_worker: YoutubeSearchWorker | SpotifySearchWorker | None = None
+        self._slug_en_precarga: str | None = None
+        # Reproducción continua dentro del chart — solo YouTube (Spotify no
+        # tiene API de iframe hoy, ver plan de sesión 2026-06-23).
+        self._pos_reproduciendo: int | None = None
+        self._cache_siguiente: dict[int, list] = {}  # {posicion: candidatos}
+        self._siguiente_worker: YoutubeSearchWorker | None = None
+        self._puente = _PuenteYoutube(self)
         self._build_ui()
         self.recargar()
 
     def _build_ui(self):
-        lay = QVBoxLayout(self)
+        lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
 
-        top = QHBoxLayout()
-        top.addWidget(QLabel("Género:"))
-        self._combo = QComboBox()
-        self._combo.currentIndexChanged.connect(self._on_genero_cambiado)
-        top.addWidget(self._combo)
+        self._lista_charts = QListWidget()
+        self._lista_charts.setMaximumWidth(220)
+        self._lista_charts.currentItemChanged.connect(self._on_genero_cambiado)
+        lay.addWidget(self._lista_charts)
 
+        contenido = QWidget()
+        contenido_lay = QVBoxLayout(contenido)
+        contenido_lay.setContentsMargins(0, 0, 0, 0)
+        contenido_lay.setSpacing(6)
+        lay.addWidget(contenido, stretch=1)
+
+        top = QHBoxLayout()
         self._lbl_estado = QLabel()
         top.addWidget(self._lbl_estado, stretch=1)
 
@@ -199,7 +238,7 @@ class ChartsWidget(QWidget):
         )
         self._btn_refrescar.clicked.connect(self.recargar)
         top.addWidget(self._btn_refrescar)
-        lay.addLayout(top)
+        contenido_lay.addLayout(top)
 
         self._tabla = QTableView()
         self._tabla.setModel(self._model)
@@ -246,6 +285,9 @@ class ChartsWidget(QWidget):
         panel_lay.addWidget(self._lbl_yt_estado)
         self._yt_view = QWebEngineView()
         self._yt_view.setPage(_PreviewPage(self._yt_view))
+        self._canal = QWebChannel(self._yt_view.page())
+        self._canal.registerObject("bridge", self._puente)
+        self._yt_view.page().setWebChannel(self._canal)
         panel_lay.addWidget(self._yt_view, stretch=1)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -253,27 +295,29 @@ class ChartsWidget(QWidget):
         splitter.addWidget(self._panel_yt)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
-        lay.addWidget(splitter, stretch=1)
+        contenido_lay.addWidget(splitter, stretch=1)
 
         bot = QHBoxLayout()
         bot.addStretch()
         self._btn_conseguir = QPushButton("➕  Agregar a 'para conseguir'")
         self._btn_conseguir.clicked.connect(self._on_agregar_conseguir)
         bot.addWidget(self._btn_conseguir)
-        lay.addLayout(bot)
+        contenido_lay.addLayout(bot)
 
     # ----------------------------------------------------------------- datos
     def recargar(self):
         generos = _generos_disponibles(self._db_path)
         generos = sorted(generos, key=lambda g: (g["genero_slug"] != "global", g["nombre"] or ""))
 
-        slug_actual = self._combo.currentData()
-        self._combo.blockSignals(True)
-        self._combo.clear()
+        slug_actual = self._slug_actual()
+        self._lista_charts.blockSignals(True)
+        self._lista_charts.clear()
         for g in generos:
             etiqueta = "🌐 Global Top 100" if g["genero_slug"] == "global" else g["nombre"]
-            self._combo.addItem(etiqueta, g["genero_slug"])
-        self._combo.blockSignals(False)
+            item = QListWidgetItem(etiqueta)
+            item.setData(Qt.UserRole, g["genero_slug"])
+            self._lista_charts.addItem(item)
+        self._lista_charts.blockSignals(False)
 
         if not generos:
             self._lbl_estado.setText(
@@ -282,18 +326,30 @@ class ChartsWidget(QWidget):
             self._model.recargar(self._db_path, "global")
             return
 
-        idx = self._combo.findData(slug_actual) if slug_actual else -1
-        self._combo.setCurrentIndex(idx if idx >= 0 else 0)
+        fila_idx = self._fila_para_slug(slug_actual) if slug_actual else -1
+        self._lista_charts.setCurrentRow(fila_idx if fila_idx >= 0 else 0)
         self._cargar_genero_actual()
 
-    def _on_genero_cambiado(self, _idx: int):
+    def _slug_actual(self) -> str | None:
+        item = self._lista_charts.currentItem()
+        return item.data(Qt.UserRole) if item else None
+
+    def _fila_para_slug(self, slug: str) -> int:
+        for i in range(self._lista_charts.count()):
+            if self._lista_charts.item(i).data(Qt.UserRole) == slug:
+                return i
+        return -1
+
+    def _on_genero_cambiado(self, *_args):
         self._cargar_genero_actual()
 
     def _cargar_genero_actual(self):
-        slug = self._combo.currentData()
+        slug = self._slug_actual()
         if not slug:
             return
         self._model.recargar(self._db_path, slug)
+        self._pos_reproduciendo = None
+        self._cache_siguiente.clear()
 
         n = self._model.rowCount()
         novedades = self._model.n_novedades()
@@ -304,6 +360,36 @@ class ChartsWidget(QWidget):
         if novedades:
             partes.append(f"{novedades} novedades")
         self._lbl_estado.setText("  ·  ".join(partes))
+
+        self._precargar_track1(slug)
+
+    # ------------------------------------------------------ precarga track1
+    def _precargar_track1(self, slug: str):
+        if slug in self._cache_track1:
+            return
+        fila = self._model.fila(0)
+        if fila is None:
+            return
+        if self._precarga_worker is not None and self._precarga_worker.isRunning():
+            return  # ya hay una precarga en curso, la próxima espera su turno
+
+        preferido = settings.get("reproductor_preferido", "youtube")
+        self._slug_en_precarga = slug
+        if preferido == "spotify":
+            self._precarga_worker = SpotifySearchWorker(
+                fila["artistas_raw"], fila["nombre_raw"], fila["mix_name_raw"]
+            )
+        else:
+            self._precarga_worker = YoutubeSearchWorker(
+                fila["artistas_raw"], fila["nombre_raw"], fila["mix_name_raw"]
+            )
+        self._precarga_worker.terminado.connect(self._on_track1_precargado)
+        self._precarga_worker.start()
+
+    def _on_track1_precargado(self, resultado):
+        if self._slug_en_precarga:
+            self._cache_track1[self._slug_en_precarga] = resultado
+        self._slug_en_precarga = None
 
     # --------------------------------------------------------------- acción
     def _on_agregar_conseguir(self):
@@ -354,9 +440,22 @@ class ChartsWidget(QWidget):
             return None
         return self._model.fila(filas[0])
 
+    def _es_track1_precargado_youtube(self, fila: dict) -> bool:
+        slug = self._slug_actual()
+        return (
+            fila["posicion"] == 1
+            and slug in self._cache_track1
+            and settings.get("reproductor_preferido", "youtube") == "youtube"
+            and isinstance(self._cache_track1.get(slug), list)
+        )
+
     def _on_elegir_youtube(self, *_args):
         fila = self._fila_seleccionada()
         if fila is None:
+            return
+        self._pos_reproduciendo = None
+        if self._es_track1_precargado_youtube(fila):
+            self._on_youtube_encontrado(self._cache_track1[self._slug_actual()], posicion=fila["posicion"])
             return
         if self._yt_worker is not None and self._yt_worker.isRunning():
             return  # ya hay una búsqueda en curso
@@ -366,15 +465,16 @@ class ChartsWidget(QWidget):
         self._yt_worker = YoutubeSearchWorker(
             fila["artistas_raw"], fila["nombre_raw"], fila["mix_name_raw"]
         )
-        self._yt_worker.terminado.connect(self._on_youtube_encontrado)
+        self._yt_worker.terminado.connect(lambda candidatos: self._on_youtube_encontrado(candidatos, fila["posicion"]))
         self._yt_worker.start()
 
-    def _on_youtube_encontrado(self, candidatos: list):
+    def _on_youtube_encontrado(self, candidatos: list, posicion: int | None = None):
         if not candidatos:
             self._lbl_yt_estado.setText(
                 "No se encontró un preview en YouTube para este track — probá con el botón de Spotify."
             )
             return
+        self._pos_reproduciendo = posicion
         mejor = candidatos[0]
         ids_js = ",".join(f"'{c.video_id}'" for c in candidatos)
         # YouTube rechaza el embed si el documento no tiene un origen http(s)
@@ -385,23 +485,35 @@ class ChartsWidget(QWidget):
         # embeber (restricción del dueño, error 101/150) — el handler
         # onError prueba el siguiente candidato encontrado en YouTube (no
         # cruza a Spotify: esa es una elección aparte del usuario, no un
-        # fallback automático).
+        # fallback automático). onStateChange avisa a Python (vía
+        # QWebChannel) cuándo arranca/termina el track para la reproducción
+        # continua dentro del chart (ver _PuenteYoutube).
         html = f"""<html><head><style>
             html,body{{margin:0;background:#000;height:100%;}}
             #player{{width:100%;height:100%;}}
             #msg{{color:#999;font-family:sans-serif;padding:20px;}}
             </style></head><body>
             <div id="player"></div>
+            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
             <script>
             var candidatos = [{ids_js}];
             var idx = 0;
             var player;
+            var bridge;
+            new QWebChannel(qt.webChannelTransport, function(channel) {{
+                bridge = channel.objects.bridge;
+            }});
             function onYouTubeIframeAPIReady() {{
                 player = new YT.Player('player', {{
                     height: '100%', width: '100%', videoId: candidatos[idx],
                     playerVars: {{autoplay: 1, rel: 0}},
-                    events: {{'onError': onPlayerError}}
+                    events: {{'onError': onPlayerError, 'onStateChange': onPlayerStateChange}}
                 }});
+            }}
+            function onPlayerStateChange(e) {{
+                if (!bridge) return;
+                if (e.data === YT.PlayerState.PLAYING) {{ bridge.track_empezo(); }}
+                else if (e.data === YT.PlayerState.ENDED) {{ bridge.track_terminado(); }}
             }}
             function onPlayerError(e) {{
                 idx++;
@@ -421,9 +533,23 @@ class ChartsWidget(QWidget):
         badge = "✓ Extended Mix" if mejor.es_extended else "⚠ Sin Extended Mix — versión corta"
         self._lbl_yt_estado.setText(f"YouTube: {badge}  ·  {mejor.titulo}")
 
+    def _es_track1_precargado_spotify(self, fila: dict) -> bool:
+        slug = self._slug_actual()
+        return (
+            fila["posicion"] == 1
+            and slug in self._cache_track1
+            and settings.get("reproductor_preferido", "youtube") == "spotify"
+            and self._cache_track1.get(slug) is not None
+            and not isinstance(self._cache_track1.get(slug), list)
+        )
+
     def _on_elegir_spotify(self, *_args):
         fila = self._fila_seleccionada()
         if fila is None:
+            return
+        self._pos_reproduciendo = None
+        if self._es_track1_precargado_spotify(fila):
+            self._on_spotify_encontrado(self._cache_track1[self._slug_actual()])
             return
         if self._spotify_worker is not None and self._spotify_worker.isRunning():
             return  # ya hay una búsqueda en curso
@@ -451,3 +577,65 @@ class ChartsWidget(QWidget):
         self._yt_view.setUrl(QUrl(local_preview_server.set_html(html)))
         badge = "✓ Extended Mix" if resultado.es_extended else "⚠ Versión corta"
         self._lbl_yt_estado.setText(f"Spotify (30s): {badge}  ·  {resultado.titulo}")
+
+    # ------------------------------------------------------- avance continuo
+    def _fila_por_posicion(self, posicion: int) -> dict | None:
+        for i in range(self._model.rowCount()):
+            fila = self._model.fila(i)
+            if fila and fila["posicion"] == posicion:
+                return fila
+        return None
+
+    def _on_yt_track_empezo(self):
+        if self._pos_reproduciendo is None:
+            return
+        siguiente = self._fila_por_posicion(self._pos_reproduciendo + 1)
+        if siguiente is None or (self._pos_reproduciendo + 1) in self._cache_siguiente:
+            return
+        if self._siguiente_worker is not None and self._siguiente_worker.isRunning():
+            return
+        pos_buscada = siguiente["posicion"]
+        self._siguiente_worker = YoutubeSearchWorker(
+            siguiente["artistas_raw"], siguiente["nombre_raw"], siguiente["mix_name_raw"]
+        )
+        self._siguiente_worker.terminado.connect(
+            lambda candidatos: self._cache_siguiente.update({pos_buscada: candidatos})
+        )
+        self._siguiente_worker.start()
+
+    def _on_yt_track_terminado(self):
+        if self._pos_reproduciendo is None:
+            return
+        pos_siguiente = self._pos_reproduciendo + 1
+        if pos_siguiente in self._cache_siguiente:
+            self._avanzar_a(pos_siguiente)
+        else:
+            siguiente = self._fila_por_posicion(pos_siguiente)
+            if siguiente is None:
+                self._lbl_yt_estado.setText("Fin del chart.")
+                self._pos_reproduciendo = None
+                return
+            self._lbl_yt_estado.setText("Cargando el siguiente track…")
+            if self._siguiente_worker is not None:
+                self._siguiente_worker.terminado.connect(
+                    lambda candidatos, p=pos_siguiente: self._avanzar_a(p) if candidatos else None
+                )
+
+    def _avanzar_a(self, posicion: int):
+        candidatos = self._cache_siguiente.pop(posicion, None)
+        if not candidatos:
+            self._lbl_yt_estado.setText("Fin del chart.")
+            self._pos_reproduciendo = None
+            return
+        self._pos_reproduciendo = posicion
+        ids_js = ",".join(f"'{c.video_id}'" for c in candidatos)
+        self._yt_view.page().runJavaScript(
+            f"candidatos = [{ids_js}]; idx = 0; player.loadVideoById(candidatos[0]);"
+        )
+        mejor = candidatos[0]
+        badge = "✓ Extended Mix" if mejor.es_extended else "⚠ Sin Extended Mix — versión corta"
+        self._lbl_yt_estado.setText(f"YouTube #{posicion}: {badge}  ·  {mejor.titulo}")
+        fila = self._fila_por_posicion(posicion)
+        if fila is not None:
+            idx_modelo = self._model.index(self._model._filas.index(fila), 0)
+            self._tabla.selectRow(idx_modelo.row())

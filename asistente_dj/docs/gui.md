@@ -41,7 +41,9 @@ horizontal **Biblioteca - Playlist - Charts**.
   memoria compartida entre la grilla de Biblioteca y la de Playlist.
 - `gui/artistas_widget.py` y sus workers existen pero todavía no están
   conectados a `main_window.py`.
-- `gui/charts_widget.py` — pestaña Charts (ver `docs/modulo2_descubrimiento.md`).
+- `gui/charts_widget.py` — pestaña Charts: barra lateral de charts +
+  precarga del track #1 + reproducción continua en YouTube (sesión
+  2026-06-23, detalle completo en `docs/modulo2_descubrimiento.md`).
 
 ## Carátulas en vivo durante el escaneo (sesión 2026-06-22)
 
