@@ -54,7 +54,6 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction("🗑 Eliminar", self._on_eliminar)
         tb.addAction("➕ Playlist", self._on_crear_playlist)
-        tb.addAction("🏷 Género en lote", self._on_genero_en_lote)
         tb.addSeparator()
         tb.addAction("🌐 BD Online", self._on_bd_online)
         tb.addAction("☁ Backup en la nube", self._on_backup_nube)
@@ -382,9 +381,6 @@ class MainWindow(QMainWindow):
         if not archivo:
             return
         self._lanzar(DjImportWorker(archivo, "traktor", self._db_path))
-
-    def _on_genero_en_lote(self):
-        self._org.editar_genero_en_lote()
 
     def _on_eliminar(self):
         ids = self._org.ids_seleccionados()

@@ -9,8 +9,8 @@ from PySide6.QtCore import Qt, QSortFilterProxyModel, QUrl, Signal, QSize
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QSlider, QSpinBox, QSplitter, QTableView,
-    QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QLabel, QLineEdit, QMenu, QPushButton, QSlider, QSpinBox, QSplitter,
+    QTableView, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
     QHeaderView, QAbstractItemView, QStyledItemDelegate,
 )
 
@@ -718,11 +718,15 @@ class OrganizadorWidget(QWidget):
         filtros_bar = QHBoxLayout()
         filtros_bar.setSpacing(6)
 
+        self._modo_seleccion = False
         self._btn_seleccionar = QPushButton("☐  Seleccionar")
-        self._btn_seleccionar.setCheckable(True)
+        self._btn_seleccionar.setCheckable(False)
         self._btn_seleccionar.setToolTip(
-            "Mostrar checkboxes para elegir varios tracks (crear playlist / eliminar)")
-        self._btn_seleccionar.toggled.connect(self._on_toggle_seleccion)
+            "Mostrar checkboxes para elegir varios tracks. Con algo tildado, "
+            "el mismo botón pasa a abrir las acciones masivas (cambiar "
+            "género, crear playlist, eliminar, etc.)."
+        )
+        self._btn_seleccionar.clicked.connect(self._on_click_btn_seleccionar)
         filtros_bar.addWidget(self._btn_seleccionar)
         filtros_bar.addSpacing(10)
 
@@ -978,7 +982,7 @@ class OrganizadorWidget(QWidget):
         """Single click: actualiza el panel de detalle; en Género/Subgénero
         abre el editor inline directamente."""
         if proxy_index.column() == COL_CHECK:
-            if self._btn_seleccionar.isChecked():
+            if self._modo_seleccion:
                 # En modo selección, el delegate es un QStyledItemDelegate
                 # genérico: el click solo en algunas plataformas alterna el
                 # checkbox sin ayuda — lo hacemos explícito para que
@@ -986,6 +990,7 @@ class OrganizadorWidget(QWidget):
                 actual = proxy_index.data(Qt.CheckStateRole)
                 nuevo = Qt.Unchecked if actual == Qt.Checked else Qt.Checked
                 self._proxy.setData(proxy_index, nuevo, Qt.CheckStateRole)
+                self._actualizar_texto_btn_seleccionar()
             return
         row = proxy_index.row()
         src = self._proxy.mapToSource(self._proxy.index(row, 0))
@@ -1002,11 +1007,51 @@ class OrganizadorWidget(QWidget):
         self._detalle.mostrar_track(fila)
         self._player.cargar_cola(self._filas_visibles(), row)
 
-    def _on_toggle_seleccion(self, activo: bool):
-        """Alterna la columna 0 entre botones Play y checkboxes de selección."""
+    def _on_click_btn_seleccionar(self):
+        """Máquina de estados del botón único Seleccionar/Acción masiva:
+        - Apagado → prende modo selección.
+        - Prendido, nada tildado → apaga modo selección (toggle simple).
+        - Prendido, algo tildado → NO apaga nada, abre el menú de acciones
+          masivas (Cambiar género, y lo que se sume a futuro)."""
+        if self._modo_seleccion and self._model.ids_seleccionados():
+            self._abrir_menu_acciones_masivas()
+            return
+        self._modo_seleccion = not self._modo_seleccion
         self._tabla.setItemDelegateForColumn(
-            COL_CHECK, self._delegate_checkbox if activo else self._delegate_play)
-        self._btn_seleccionar.setText("✓  Seleccionando" if activo else "☐  Seleccionar")
+            COL_CHECK, self._delegate_checkbox if self._modo_seleccion else self._delegate_play)
+        if not self._modo_seleccion:
+            self._model.limpiar_seleccion()
+        self._actualizar_texto_btn_seleccionar()
+        self._tabla.viewport().update()
+
+    def _actualizar_texto_btn_seleccionar(self):
+        if not self._modo_seleccion:
+            self._btn_seleccionar.setText("☐  Seleccionar")
+            return
+        n = len(self._model.ids_seleccionados())
+        if n:
+            self._btn_seleccionar.setText(f"⚡  Acción masiva ({n})")
+        else:
+            self._btn_seleccionar.setText("✓  Seleccionando")
+
+    def _abrir_menu_acciones_masivas(self):
+        """Menú de acciones sobre los tracks tildados — hoy solo "Cambiar
+        género", pensado para sumar más entradas a futuro sin tocar la
+        interacción. Salga lo que salga (acción aplicada, diálogo
+        cancelado, o menú cerrado sin elegir nada), se apaga el modo
+        selección al volver."""
+        menu = QMenu(self)
+        accion_genero = menu.addAction("🏷  Cambiar género…")
+        elegida = menu.exec(
+            self._btn_seleccionar.mapToGlobal(self._btn_seleccionar.rect().bottomLeft())
+        )
+        if elegida is accion_genero:
+            self.editar_genero_en_lote()
+
+        self._modo_seleccion = False
+        self._tabla.setItemDelegateForColumn(COL_CHECK, self._delegate_play)
+        self._model.limpiar_seleccion()
+        self._actualizar_texto_btn_seleccionar()
         self._tabla.viewport().update()
 
     def _on_track_actual_changed(self, track_id):

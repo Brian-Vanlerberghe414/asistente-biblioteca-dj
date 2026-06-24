@@ -103,12 +103,31 @@ la app (`gui/workers.py:SyncWorker`, `MainWindow._iniciar_sync`/`closeEvent`).
   (antes usaba tamaño en puntos en vez de píxeles); badges de Key con
   ancho fijo (antes "8A" quedaba más chico que "11A").
 
-## Edición masiva (sesión 2026-06-23)
+## Edición masiva / botón Seleccionar = Acción masiva (sesión 2026-06-23)
 
-Botón **"🏷 Género en lote"** en la toolbar: tildás varios tracks (modo
-Selección) y aplicás género/subgénero a todos de una — queda como cambio
-pendiente (igual que una edición inline, fila en amarillo + barra
-Guardar/Cancelar), no se escribe directo. `TrackModel.marcar_genero_lote(ids, genero, subgenero)`
-reutiliza el mecanismo de `setData`/`_pendientes` ya existente, así al
-guardar sube todo en un solo lote (ver `docs/modulo3_nube_backend.md`,
-"Push también agrupado").
+El botón **"☐ Seleccionar"** (en `filtros_bar`, dentro de `OrganizadorWidget`)
+ya no es un simple toggle — es una máquina de estados de 3 textos
+(`_on_click_btn_seleccionar`/`_actualizar_texto_btn_seleccionar` en
+`gui/organizador.py`, `self._modo_seleccion: bool`, NO usa
+`setCheckable(True)` de Qt — se maneja a mano para poder distinguir el
+3er caso):
+
+1. **Apagado**: "☐ Seleccionar". Click → prende modo selección.
+2. **Prendido, 0 tildados**: "✓ Seleccionando". Click → apaga modo
+   selección (toggle simple, igual que antes).
+3. **Prendido, ≥1 tildado**: "⚡ Acción masiva (N)" — el texto se
+   actualiza en vivo a medida que se tilda/destilda. Click → NO apaga el
+   modo selección, abre un `QMenu` (`_abrir_menu_acciones_masivas`) anclado
+   al botón con las acciones disponibles (hoy solo "🏷 Cambiar género…",
+   pensado para sumar más entradas sin tocar la interacción). Al cerrarse
+   el menú — se elija una acción, se cancele el diálogo, o se cierre sin
+   elegir nada — el modo selección se apaga siempre.
+
+Se sacó el botón separado "🏷 Género en lote" de la toolbar principal
+(`gui/main_window.py`) — la única forma de llegar a "Cambiar género" ahora
+es por este menú. `OrganizadorWidget.editar_genero_en_lote()` (la lógica
+del diálogo de género/subgénero en sí) no cambió — sigue marcando el
+cambio como **pendiente** vía `TrackModel.marcar_genero_lote(ids, genero, subgenero)`
+(reutiliza `setData`/`_pendientes`, fila en amarillo + barra
+Guardar/Cancelar, no escribe directo), y al guardar sube todo en un solo
+lote (ver `docs/modulo3_nube_backend.md`, "Push también agrupado").
