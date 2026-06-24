@@ -49,30 +49,55 @@ def _headers() -> Optional[dict]:
 
 # ------------------------------------------------------------------- tracks
 
-def push_track(track: dict) -> bool:
-    """Sube un track editado a la nube. Necesita al menos artista y título.
-    Nunca lanza excepción: devuelve False si no se pudo (sin cuenta
-    personal configurada, sin red, etc.)."""
+_CLAVE_MARCA_PUSH = "sync_ultima_marca_push"
+
+
+def flush_pendientes(conn) -> int:
+    """Junta TODOS los tracks editados localmente desde el último envío
+    exitoso (por `actualizado_en`) y los manda en un solo request a
+    `/mi-biblioteca/sync` — en vez de un request por track. Pensado para
+    llamarse solo desde el ciclo de sincronización (arranque/cierre/cada
+    cierto tiempo, ver gui/workers.py:SyncWorker), nunca desde cada
+    "Guardar" — así 20 ediciones guardadas de una (o en 20 momentos
+    distintos) generan UN envío, no 20. Devuelve cuántos tracks se
+    mandaron."""
     headers = _headers()
-    if not headers or not track.get("artista") or not track.get("titulo"):
-        return False
-    payload = {
-        "artista": track["artista"], "titulo": track["titulo"],
-        "sello": track.get("sello"), "anio": track.get("anio"),
-        "bpm": track.get("bpm"), "key": track.get("key"),
-        "camelot": track.get("camelot"), "duracion_seg": track.get("duracion_seg"),
-        "genero": track.get("genero"), "subgenero": track.get("subgenero"),
-        "energia": track.get("energia"), "r2_key": track.get("r2_key"),
-        "actualizado_en": track.get("actualizado_en") or _ahora_iso(),
-    }
+    if not headers:
+        return 0
+
+    marca_previa = settings.get(_CLAVE_MARCA_PUSH)
+    where = "actualizado_en IS NOT NULL"
+    params_sql: list = []
+    if marca_previa:
+        where += " AND actualizado_en > ?"
+        params_sql.append(marca_previa)
+    filas = conn.execute(
+        f"SELECT artista, titulo, sello, anio, bpm, key, camelot, duracion_seg, "
+        f"genero, subgenero, energia, actualizado_en FROM tracks WHERE {where}",
+        params_sql,
+    ).fetchall()
+    filas = [f for f in filas if f["artista"] and f["titulo"]]
+    if not filas:
+        return 0
+
+    payload = [{
+        "artista": f["artista"], "titulo": f["titulo"], "sello": f["sello"],
+        "anio": f["anio"], "bpm": f["bpm"], "key": f["key"], "camelot": f["camelot"],
+        "duracion_seg": f["duracion_seg"], "genero": f["genero"],
+        "subgenero": f["subgenero"], "energia": f["energia"],
+        "actualizado_en": f["actualizado_en"],
+    } for f in filas]
+
     try:
         resp = requests.post(
-            f"{BACKEND_URL}/mi-biblioteca/sync", headers=headers, json=[payload], timeout=15
+            f"{BACKEND_URL}/mi-biblioteca/sync", headers=headers, json=payload, timeout=20
         )
         resp.raise_for_status()
-        return True
     except Exception:
-        return False
+        return 0
+
+    settings.set_(_CLAVE_MARCA_PUSH, max(f["actualizado_en"] for f in filas))
+    return len(filas)
 
 
 def pull_biblioteca(conn) -> int:
@@ -134,7 +159,7 @@ def pull_biblioteca(conn) -> int:
 def push_playlist(nombre: str, ids_locales: list[int], conn) -> bool:
     """Sube una playlist. Los ids locales se traducen a ids de
     `mi_biblioteca` en la nube — solo se pueden subir tracks que ya estén
-    sincronizados (vía `push_track`)."""
+    sincronizados (vía `flush_pendientes`)."""
     headers = _headers()
     if not headers or not ids_locales:
         return False

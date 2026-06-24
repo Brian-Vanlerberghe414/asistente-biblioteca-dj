@@ -513,6 +513,26 @@ sesión 2026-06-19; Fase 1 hecha en sesión 2026-06-21, resto sin arrancar):**
     pidiendo la tabla completa (no puede ser incremental, una playlist
     puede referenciar un track viejo), pero usa `?solo_ids=true` para traer
     solo 3 columnas en vez de todas.
+  - **Push también agrupado, no por track (sesión 2026-06-23)**: antes,
+    cada track guardado disparaba un request individual a
+    `biblioteca_confiable.agregar()` Y otro a `cloud_sync.push_track()` —
+    guardar 20 tracks de una (ej. con la edición masiva de género) hacía
+    20+20 requests. Ahora: `biblioteca_confiable.agregar_lote(filas)` sube
+    todo el lote guardado en un solo upsert (`gui/track_model.py:guardar_ids`
+    ya no llama a `agregar()` en loop). El push a `mi_biblioteca` se sacó
+    por completo de `guardar_ids` — alcanza con que quede el `actualizado_en`
+    puesto en la fila local; lo manda después `cloud_sync.flush_pendientes(conn)`,
+    que junta TODOS los tracks con `actualizado_en` más nuevo que la última
+    corrida exitosa (marca propia, `sync_ultima_marca_push`) y los manda en
+    un solo `POST /mi-biblioteca/sync`. `flush_pendientes` solo se llama
+    desde `SyncWorker` (arranque + cada 20 min) y desde
+    `MainWindow.closeEvent` (síncrono, al cerrar la app) — nunca desde un
+    "Guardar" individual. Resultado: 20 ediciones guardadas (en 1 clic o en
+    20) generan como máximo 1 sincronización por ciclo, no una por track.
+    Crear una playlist sigue subiéndola al toque (acción puntual, no en
+    loop) pero ahora hace un `flush_pendientes` justo antes, para
+    garantizar que sus tracks ya estén en `mi_biblioteca` y se puedan
+    traducir los ids.
 
 - **Fase 3 (sin arrancar) — Apps cliente.** Android primero (prioridad
   elegida por Brian), después web/iOS. Ya van a poder pegarle al backend de

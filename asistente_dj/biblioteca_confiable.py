@@ -211,6 +211,49 @@ def agregar(artista: str, titulo: str, duracion_seg: float,
         return False
 
 
+def agregar_lote(tracks: list[dict]) -> int:
+    """Como `agregar()`, pero para varios tracks en UN solo request (un
+    upsert por lote en vez de uno por track) — se usa cuando se guardan
+    varias correcciones manuales de una sola vez (ej. edición masiva de
+    género), para no multiplicar llamadas de red.
+
+    Cada dict de `tracks` acepta las mismas claves que los parámetros de
+    `agregar()` (artista, titulo, duracion_seg, genero, subgenero, sello,
+    bpm, camelot, cover_url, fuente). Siempre fuente="manual" — pensado
+    para el flujo de guardado manual, no genérico. Devuelve cuántos se
+    mandaron (0 si no hay cliente configurado o falla el request)."""
+    cliente = _get_cliente()
+    if cliente is None or not tracks:
+        return 0
+
+    filas = []
+    for t in tracks:
+        artista, titulo = t.get("artista"), t.get("titulo")
+        if not artista or not titulo:
+            continue
+        data = {
+            "artista": artista.strip(), "titulo": titulo.strip(),
+            "artista_norm": _norm(artista), "titulo_norm": _norm(titulo),
+            "duracion_seg": round(t.get("duracion_seg") or 0, 2),
+            "genero": t.get("genero"), "subgenero": t.get("subgenero"),
+            "sello": t.get("sello"),
+            "bpm": round(t["bpm"], 2) if t.get("bpm") else None,
+            "camelot": t.get("camelot"), "fuente": "manual", "confirmado": True,
+        }
+        if t.get("cover_url"):
+            data["cover_url"] = t["cover_url"]
+        filas.append(data)
+    if not filas:
+        return 0
+
+    try:
+        cliente.table(_TABLA).upsert(filas, on_conflict="artista_norm,titulo_norm").execute()
+        return len(filas)
+    except Exception as e:
+        print(f"  [biblioteca] Error guardando lote en Supabase: {e}")
+        return 0
+
+
 def actualizar_cover_url(artista: str, titulo: str, cover_url: str) -> bool:
     """Guarda la carátula de un track que YA existe en la Biblioteca
     Confiable, sin tocar género/BPM/etc. (a diferencia de `agregar()`, que

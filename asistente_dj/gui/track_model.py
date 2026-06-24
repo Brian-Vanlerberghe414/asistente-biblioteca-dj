@@ -183,33 +183,25 @@ class TrackModel(QAbstractTableModel):
         conn.commit()
 
         # Una corrección manual es la verdad final: se sube a la Biblioteca
-        # Confiable con fuente="manual", que queda protegida ahí (ningún
-        # scrape de charts ni otro DJ la va a pisar después). También se
-        # sube a la biblioteca PERSONAL en la nube (mi_biblioteca), base
-        # para que el mismo cambio se vea desde otros dispositivos.
+        # Confiable con fuente="manual" (protegida ahí: nada automático la
+        # pisa después). UN solo request para todo el lote guardado (no uno
+        # por track) — importa sobre todo en la edición masiva, donde un
+        # solo "Guardar" puede traer 20+ tracks de una.
+        #
+        # La biblioteca PERSONAL en la nube (mi_biblioteca) NO se sube acá:
+        # alcanza con que quede el `actualizado_en` puesto arriba — el envío
+        # real lo hace `cloud_sync.flush_pendientes()` en su propio ciclo
+        # (al arrancar/cerrar la app y cada cierto tiempo, ver main_window),
+        # así no se gasta una sincronización de red por cada "Guardar".
         import biblioteca_confiable
-        import cloud_sync
-        subir_compartido = biblioteca_confiable.esta_configurado()
-        subir_personal = __import__("cloud_backup").esta_configurado()
-        if ids_guardados and (subir_compartido or subir_personal):
-            for track_id in ids_guardados:
-                row = conn.execute(
-                    "SELECT artista, titulo, duracion_seg, genero, subgenero, "
-                    "sello, bpm, camelot, actualizado_en FROM tracks WHERE id=?",
-                    (track_id,)
-                ).fetchone()
-                if not row or not row["artista"] or not row["titulo"]:
-                    continue
-                if subir_compartido:
-                    biblioteca_confiable.agregar(
-                        artista=row["artista"], titulo=row["titulo"],
-                        duracion_seg=row["duracion_seg"] or 0,
-                        genero=row["genero"], subgenero=row["subgenero"],
-                        sello=row["sello"], bpm=row["bpm"], camelot=row["camelot"],
-                        fuente="manual",
-                    )
-                if subir_personal:
-                    cloud_sync.push_track(dict(row))
+        if ids_guardados and biblioteca_confiable.esta_configurado():
+            filas = conn.execute(
+                f"SELECT artista, titulo, duracion_seg, genero, subgenero, "
+                f"sello, bpm, camelot FROM tracks WHERE id IN "
+                f"({','.join('?' * len(ids_guardados))})",
+                ids_guardados,
+            ).fetchall()
+            biblioteca_confiable.agregar_lote([dict(f) for f in filas])
 
         conn.close()
         self.beginResetModel()

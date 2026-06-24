@@ -342,11 +342,14 @@ class CoverFillWorker(QThread):
 
 
 class SyncWorker(QThread):
-    """Trae cambios de género/playlists hechos desde otro dispositivo (ej.
-    Android, más adelante) — corre en background, sin botón ni popups, al
-    arrancar la app y cada cierto intervalo (ver MainWindow). Silenciosa:
-    si no hay cuenta personal configurada o falla la red, simplemente no
-    hace nada (no interrumpe al DJ)."""
+    """Único punto donde la app habla con la nube para mi_biblioteca/
+    mis_playlists — sube lo editado localmente (en un solo lote, ver
+    `cloud_sync.flush_pendientes`) y trae lo editado desde otro dispositivo.
+    Corre en background, sin botón ni popups, solo al arrancar la app, al
+    cerrarla, y cada cierto intervalo mientras está abierta (ver
+    MainWindow) — nunca en cada "Guardar", para no multiplicar
+    sincronizaciones de red. Silenciosa: si no hay cuenta personal
+    configurada o falla la red, simplemente no hace nada."""
     terminado = Signal(dict)
 
     def __init__(self, db_path: str):
@@ -359,15 +362,18 @@ class SyncWorker(QThread):
             sys.path.insert(0, proj)
         import cloud_backup
         if not cloud_backup.esta_configurado():
-            self.terminado.emit({"tracks": 0, "playlists": 0})
+            self.terminado.emit({"tracks": 0, "playlists": 0, "subidos": 0})
             return
 
         import cloud_sync
         import db as db_mod
         conn = db_mod.connect(self.db_path)
+        n_subidos = cloud_sync.flush_pendientes(conn)
         n_tracks = cloud_sync.pull_biblioteca(conn)
         n_playlists = cloud_sync.pull_playlists(conn)
         conn.close()
-        self.terminado.emit({"tracks": n_tracks, "playlists": n_playlists})
+        self.terminado.emit({
+            "tracks": n_tracks, "playlists": n_playlists, "subidos": n_subidos,
+        })
 
 

@@ -511,10 +511,14 @@ class MainWindow(QMainWindow):
 
         # Base para que esta playlist se vea desde otros dispositivos
         # (Fase 3 — apps cliente): se sube a mis_playlists en la nube si
-        # el DJ tiene su cuenta personal configurada.
+        # el DJ tiene su cuenta personal configurada. Primero un flush de
+        # los tracks pendientes (push_playlist necesita que ya estén en
+        # mi_biblioteca para poder traducir sus ids) — un solo request
+        # extra puntual, no algo que se repita en loop.
         import cloud_backup
         if cloud_backup.esta_configurado():
             import cloud_sync
+            cloud_sync.flush_pendientes(conn)
             cloud_sync.push_playlist(nombre, ids, conn)
         conn.close()
 
@@ -573,12 +577,19 @@ class MainWindow(QMainWindow):
     def _on_sync_terminado(self, resultado: dict):
         n_tracks = resultado.get("tracks", 0)
         n_playlists = resultado.get("playlists", 0)
+        n_subidos = resultado.get("subidos", 0)
         if n_tracks or n_playlists:
             self._org.recargar()
             self._playlists.recargar()
-            self.statusBar().showMessage(
-                f"🔄 Sincronizado: {n_tracks} track(s), {n_playlists} playlist(s) actualizadas."
-            )
+        if n_tracks or n_playlists or n_subidos:
+            partes = []
+            if n_subidos:
+                partes.append(f"{n_subidos} subido(s)")
+            if n_tracks:
+                partes.append(f"{n_tracks} track(s) traídos")
+            if n_playlists:
+                partes.append(f"{n_playlists} playlist(s) traídas")
+            self.statusBar().showMessage("🔄 Sincronizado: " + ", ".join(partes))
 
     def _on_bd_online(self):
         """Consulta tracks_canonical para los tracks visibles y muestra sugerencias."""
@@ -707,4 +718,21 @@ class MainWindow(QMainWindow):
                 return
             self._worker.terminate()
         self._org._player.parar()
+        self._sync_al_cerrar()
         super().closeEvent(event)
+
+    def _sync_al_cerrar(self):
+        """Última sincronización, en el hilo principal (la app se está
+        cerrando, no hay tiempo de esperar un QThread) — corta rápido si no
+        hay nada pendiente ni cuenta configurada."""
+        try:
+            import cloud_backup
+            if not cloud_backup.esta_configurado():
+                return
+            import cloud_sync
+            import db as db_mod
+            conn = db_mod.connect(self._db_path)
+            cloud_sync.flush_pendientes(conn)
+            conn.close()
+        except Exception:
+            pass
