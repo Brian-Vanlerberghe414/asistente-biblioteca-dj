@@ -18,7 +18,7 @@ from fastapi import FastAPI
 
 from supabase_client import cerrar_cliente_servicio
 from routes import (
-    artistas, audio, biblioteca, charts, me, mi_biblioteca, playlists_compartidas,
+    artistas, audio, biblioteca, charts, me, mi_biblioteca, playlists_compartidas, youtube,
 )
 
 
@@ -39,6 +39,7 @@ app.include_router(charts.router)
 app.include_router(audio.router)
 app.include_router(mi_biblioteca.router)
 app.include_router(playlists_compartidas.router)
+app.include_router(youtube.router)
 
 
 @app.get("/health")
