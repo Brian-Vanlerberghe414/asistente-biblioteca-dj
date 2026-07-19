@@ -46,8 +46,19 @@ async def pedir_url_subida(solicitud: SolicitudSubida,
 
 
 @router.get("/mios")
-async def mi_coleccion(cliente: AsyncClient = Depends(cliente_para_usuario)):
-    resp = await cliente.table(_TABLA).select("*").order("subido_en", desc=True).execute()
+async def mi_coleccion(before_id: int | None = None, limit: int | None = None,
+                       cliente: AsyncClient = Depends(cliente_para_usuario)):
+    """`before_id` + `limit` (opcionales, keyset): para bibliotecas grandes
+    (miles de archivos subidos), traer de a páginas en vez de todo junto.
+    Orden estable por `id` descendente (≈ orden de subida, ya que los ids
+    son secuenciales); para la página siguiente, `before_id` = el `id` de la
+    última fila recibida. Sin estos parámetros, comportamiento de siempre."""
+    q = cliente.table(_TABLA).select("*").order("id", desc=True)
+    if before_id is not None:
+        q = q.lt("id", before_id)
+    if limit is not None:
+        q = q.limit(limit)
+    resp = await q.execute()
     return resp.data
 
 

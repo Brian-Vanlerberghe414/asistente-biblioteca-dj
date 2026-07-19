@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase._async.client import AsyncClient
 
@@ -88,6 +88,7 @@ async def sincronizar(tracks: list[TrackSync],
 
 @router.get("")
 async def mi_biblioteca(since: Optional[str] = None, solo_ids: bool = False,
+                        after_id: Optional[int] = None, limit: Optional[int] = None,
                         cliente: AsyncClient = Depends(cliente_para_usuario)):
     """`since` (ISO 8601, opcional): si se manda, solo devuelve filas con
     `actualizado_en` posterior — permite sincronizaciones incrementales en
@@ -95,11 +96,21 @@ async def mi_biblioteca(since: Optional[str] = None, solo_ids: bool = False,
 
     `solo_ids`: para cuando lo único que hace falta es traducir ids de
     playlist a artista/título (push/pull de playlists) — evita bajar todas
-    las columnas (bpm, key, género, etc.) cuando no hacen falta."""
+    las columnas (bpm, key, género, etc.) cuando no hacen falta.
+
+    `after_id` + `limit` (ambos opcionales, keyset): para clientes con miles
+    de tracks (ej. la app) que quieren traer la biblioteca de a páginas en
+    vez de un array gigante. Orden estable por `id`; para la página
+    siguiente, `after_id` = el `id` de la última fila recibida. Sin estos
+    parámetros el comportamiento es el de siempre (todo de una)."""
     campos = "id, artista_norm, titulo_norm" if solo_ids else "*"
-    q = cliente.table(_TABLA).select(campos)
+    q = cliente.table(_TABLA).select(campos).order("id")
     if since:
         q = q.gt("actualizado_en", since)
+    if after_id is not None:
+        q = q.gt("id", after_id)
+    if limit is not None:
+        q = q.limit(limit)
     resp = await q.execute()
     return resp.data
 
@@ -137,3 +148,32 @@ async def mis_playlists(since: Optional[str] = None,
         q = q.gt("actualizado_en", since)
     resp = await q.execute()
     return resp.data
+
+
+class PlaylistRename(BaseModel):
+    nombre_nuevo: str
+
+
+@router.patch("/playlists/{nombre}")
+async def renombrar_playlist(nombre: str, cambio: PlaylistRename,
+                             cliente: AsyncClient = Depends(cliente_para_usuario)):
+    """Renombra sin duplicar (a diferencia de subir de nuevo con `POST
+    /playlists`, que haría upsert por nombre nuevo y dejaría la vieja
+    huérfana). RLS (`cliente_para_usuario`) ya garantiza que solo se pueda
+    tocar una playlist propia."""
+    resp = await (
+        cliente.table(_TABLA_PLAYLISTS)
+        .update({"nombre": cambio.nombre_nuevo, "actualizado_en": datetime.now(timezone.utc).isoformat()})
+        .eq("nombre", nombre).execute()
+    )
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Playlist no encontrada")
+    return resp.data[0]
+
+
+@router.delete("/playlists/{nombre}")
+async def borrar_playlist(nombre: str, cliente: AsyncClient = Depends(cliente_para_usuario)):
+    resp = await cliente.table(_TABLA_PLAYLISTS).delete().eq("nombre", nombre).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Playlist no encontrada")
+    return {"borrado": True}
