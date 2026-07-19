@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from supabase._async.client import AsyncClient
 
 from auth import UsuarioActual, obtener_usuario_actual
 from supabase_client import cliente_para_usuario
@@ -38,11 +39,10 @@ def _norm(texto: str) -> str:
 
 
 @router.get("/buscar")
-def buscar(artista: str, titulo: str, duracion_seg: float,
-           usuario: UsuarioActual = Depends(obtener_usuario_actual)):
-    cliente = cliente_para_usuario(usuario.jwt)
+async def buscar(artista: str, titulo: str, duracion_seg: float,
+                 cliente: AsyncClient = Depends(cliente_para_usuario)):
     art, tit = _norm(artista), _norm(titulo)
-    resp = (
+    resp = await (
         cliente.table(_TABLA)
         .select("genero, subgenero, bpm, camelot")
         .ilike("artista_norm", art)
@@ -57,9 +57,8 @@ def buscar(artista: str, titulo: str, duracion_seg: float,
 
 
 @router.get("/listar")
-def listar(genero: Optional[str] = None, limit: int = 50,
-           usuario: UsuarioActual = Depends(obtener_usuario_actual)):
-    cliente = cliente_para_usuario(usuario.jwt)
+async def listar(genero: Optional[str] = None, limit: int = 50,
+                 cliente: AsyncClient = Depends(cliente_para_usuario)):
     q = (
         cliente.table(_TABLA)
         .select("artista, titulo, duracion_seg, genero, subgenero, fuente")
@@ -69,7 +68,7 @@ def listar(genero: Optional[str] = None, limit: int = 50,
     )
     if genero:
         q = q.eq("genero", genero)
-    return q.execute().data
+    return (await q.execute()).data
 
 
 class TrackManual(BaseModel):
@@ -84,13 +83,13 @@ class TrackManual(BaseModel):
 
 
 @router.post("/tracks")
-def agregar_manual(track: TrackManual,
-                    usuario: UsuarioActual = Depends(obtener_usuario_actual)):
+async def agregar_manual(track: TrackManual,
+                         usuario: UsuarioActual = Depends(obtener_usuario_actual),
+                         cliente: AsyncClient = Depends(cliente_para_usuario)):
     """Corrección manual de un DJ. `fuente` y `creado_por` los pone el
     servidor siempre — un cliente nunca puede declarar que su corrección
     viene de otro lado (ej. 'beatport_chart') para saltarse la protección
     de fuentes de alta confianza."""
-    cliente = cliente_para_usuario(usuario.jwt)
     data = {
         "artista": track.artista.strip(),
         "titulo": track.titulo.strip(),
@@ -107,7 +106,7 @@ def agregar_manual(track: TrackManual,
         "confirmado": True,
     }
     try:
-        cliente.table(_TABLA).upsert(data, on_conflict="artista_norm,titulo_norm").execute()
+        await cliente.table(_TABLA).upsert(data, on_conflict="artista_norm,titulo_norm").execute()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}

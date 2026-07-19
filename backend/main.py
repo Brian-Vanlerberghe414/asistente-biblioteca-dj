@@ -12,11 +12,25 @@ Variables de entorno requeridas: SUPABASE_URL, SUPABASE_ANON_KEY
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-from routes import artistas, audio, biblioteca, charts, me, mi_biblioteca
+from supabase_client import cerrar_cliente_servicio
+from routes import (
+    artistas, audio, biblioteca, charts, me, mi_biblioteca, playlists_compartidas,
+)
 
-app = FastAPI(title="Asistente Biblioteca DJ — API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Arranque: nada que precargar (el cliente de servicio es lazy).
+    yield
+    # Apagado: cerrar prolijamente las conexiones del cliente de servicio.
+    await cerrar_cliente_servicio()
+
+
+app = FastAPI(title="Asistente Biblioteca DJ — API", lifespan=lifespan)
 
 app.include_router(me.router)
 app.include_router(biblioteca.router)
@@ -24,6 +38,7 @@ app.include_router(artistas.router)
 app.include_router(charts.router)
 app.include_router(audio.router)
 app.include_router(mi_biblioteca.router)
+app.include_router(playlists_compartidas.router)
 
 
 @app.get("/health")

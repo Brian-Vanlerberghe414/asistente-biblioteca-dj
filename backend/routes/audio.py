@@ -8,6 +8,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from supabase._async.client import AsyncClient
 
 from auth import UsuarioActual, obtener_usuario_actual
 from storage import url_descarga, url_subida
@@ -26,12 +27,12 @@ class SolicitudSubida(BaseModel):
 
 
 @router.post("/upload-url")
-def pedir_url_subida(solicitud: SolicitudSubida,
-                      usuario: UsuarioActual = Depends(obtener_usuario_actual)):
+async def pedir_url_subida(solicitud: SolicitudSubida,
+                           usuario: UsuarioActual = Depends(obtener_usuario_actual),
+                           cliente: AsyncClient = Depends(cliente_para_usuario)):
     r2_key = f"{usuario.id}/{uuid.uuid4().hex}"
-    cliente = cliente_para_usuario(usuario.jwt)
     try:
-        cliente.table(_TABLA).insert({
+        await cliente.table(_TABLA).insert({
             "usuario_id": usuario.id,
             "r2_key": r2_key,
             "titulo": solicitud.titulo,
@@ -45,17 +46,15 @@ def pedir_url_subida(solicitud: SolicitudSubida,
 
 
 @router.get("/mios")
-def mi_coleccion(usuario: UsuarioActual = Depends(obtener_usuario_actual)):
-    cliente = cliente_para_usuario(usuario.jwt)
-    resp = cliente.table(_TABLA).select("*").order("subido_en", desc=True).execute()
+async def mi_coleccion(cliente: AsyncClient = Depends(cliente_para_usuario)):
+    resp = await cliente.table(_TABLA).select("*").order("subido_en", desc=True).execute()
     return resp.data
 
 
 @router.get("/{r2_key:path}/download-url")
-def pedir_url_descarga(r2_key: str,
-                        usuario: UsuarioActual = Depends(obtener_usuario_actual)):
-    cliente = cliente_para_usuario(usuario.jwt)
-    resp = cliente.table(_TABLA).select("id").eq("r2_key", r2_key).limit(1).execute()
+async def pedir_url_descarga(r2_key: str,
+                             cliente: AsyncClient = Depends(cliente_para_usuario)):
+    resp = await cliente.table(_TABLA).select("id").eq("r2_key", r2_key).limit(1).execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="No encontrado (o no es tuyo)")
     return {"download_url": url_descarga(r2_key)}

@@ -6,8 +6,8 @@ import re
 import unicodedata
 
 from fastapi import APIRouter, Depends
+from supabase._async.client import AsyncClient
 
-from auth import UsuarioActual, obtener_usuario_actual
 from supabase_client import cliente_para_usuario
 
 router = APIRouter(prefix="/artistas")
@@ -26,10 +26,9 @@ def _norm(texto: str) -> str:
 
 
 @router.get("/{nombre}/generos")
-def generos_de_artista(nombre: str,
-                        usuario: UsuarioActual = Depends(obtener_usuario_actual)):
-    cliente = cliente_para_usuario(usuario.jwt)
-    resp = (
+async def generos_de_artista(nombre: str,
+                             cliente: AsyncClient = Depends(cliente_para_usuario)):
+    resp = await (
         cliente.table(_TABLA)
         .select("artista, genero, subgenero")
         .ilike("artista_norm", f"%{_norm(nombre)}%")
